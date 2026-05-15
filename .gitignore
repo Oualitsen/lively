@@ -1,0 +1,79 @@
+# ── Dart / pub ────────────────────────────────────────────────────────────────
+.dart_tool/
+.pub-cache/
+.pub/
+# pubspec.lock is not meaningful for published packages; omit it so consumers
+# resolve their own compatible versions.
+pubspec.lock
+
+# ── Generated code ─────────────────────────────────────────────────────────────
+# Produced by build_runner — re-generate with: dart run build_runner build
+*.g.dart
+*.g.part
+
+# ── Flutter build output ──────────────────────────────────────────────────────
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter-plugin-dependencies
+
+# ── FVM ───────────────────────────────────────────────────────────────────────
+# Cache the project's Flutter version spec, ignore the SDK itself.
+.fvm/flutter_sdk
+.fvm/versions/
+!.fvm/fvm_config.json
+!.fvm/release
+!.fvm/version
+!.fvmrc
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+# VS Code — ignore workspace state, keep shared project settings.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ── Operating system ──────────────────────────────────────────────────────────
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ── Test / coverage ───────────────────────────────────────────────────────────
+coverage/
+lcov.info
+
+# ── Example app — platform folders ───────────────────────────────────────────
+# Android
+example/android/.gradle/
+example/android/local.properties
+example/android/key.properties
+example/android/*.jks
+
+# iOS / macOS
+example/ios/.symlinks/
+example/ios/Pods/
+example/ios/Flutter/Flutter.framework
+example/ios/Flutter/Flutter.podspec
+example/ios/Runner/GeneratedPluginRegistrant.*
+example/macos/.symlinks/
+example/macos/Pods/

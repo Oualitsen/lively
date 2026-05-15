@@ -1,0 +1,6 @@
+targets:
+  $default:
+    builders:
+      lively_generator:
+        generate_for:
+          - lib/**/*.dart

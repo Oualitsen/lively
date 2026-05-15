@@ -1,0 +1,24 @@
+name: lively_generator
+description: Code generator for the lively reactive Flutter widget package.
+version: 1.0.0
+homepage: https://github.com/example/lively
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  analyzer: ^6.0.0
+  build: ^2.4.0
+  source_gen: ^1.5.0
+  lively: ^1.0.0
+
+dev_dependencies:
+  build_test: ^2.2.0
+  test: ^1.24.0
+
+# Overrides the hosted lively constraint with the local path during
+# development. pub.dev ignores dependency_overrides when resolving
+# published packages, so this does not affect consumers.
+dependency_overrides:
+  lively:
+    path: ../
