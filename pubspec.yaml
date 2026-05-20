@@ -1,6 +1,6 @@
 name: lively
 description: Zero-boilerplate reactive Flutter widgets via code generation.
-version: 1.0.0
+version: 1.0.1
 homepage: https://github.com/Oualitsen/lively
 repository: https://github.com/Oualitsen/lively
 issue_tracker: https://github.com/Oualitsen/lively/issues
