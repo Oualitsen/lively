@@ -1,3 +1,9 @@
+## 1.0.1
+
+- Added example demonstrating `@Live()` and `@LiveStore()` annotated classes.
+- Updated README with full AI agent usage guide and field classification reference.
+- Fixed `homepage`, added `repository` and `issue_tracker` to pubspec.
+
 ## 1.0.0
 
 - Initial release.
