@@ -1,0 +1,2 @@
+# Exclude dev/test files from the published package
+test/

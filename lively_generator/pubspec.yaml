@@ -1,7 +1,9 @@
 name: lively_generator
 description: Code generator for the lively reactive Flutter widget package.
-version: 1.0.0
-homepage: https://github.com/example/lively
+version: 1.0.1
+homepage: https://github.com/Oualitsen/lively
+repository: https://github.com/Oualitsen/lively
+issue_tracker: https://github.com/Oualitsen/lively/issues
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
