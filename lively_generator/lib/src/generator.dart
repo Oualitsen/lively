@@ -1233,7 +1233,7 @@ class LivelyGenerator extends Generator {
 
   bool _isElemProxyable(ClassElement cls) {
     if (cls.library.isDartCore) return false;
-    if (cls.isFinal || cls.isSealed) return false;
+    if (cls.isAbstract || cls.isFinal || cls.isSealed) return false;
     return _hasDefaultConstructor(cls);
   }
 
@@ -1317,7 +1317,7 @@ class LivelyGenerator extends Generator {
     if (_isDartMap(f)) return false;
     final element = f.type.element;
     if (element is! ClassElement) return false;
-    if (element.isFinal || element.isSealed) return false;
+    if (element.isAbstract || element.isFinal || element.isSealed) return false;
     return _hasDefaultConstructor(element);
   }
 

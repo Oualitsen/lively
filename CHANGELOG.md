@@ -1,3 +1,11 @@
+## 1.0.2
+
+- Fix: abstract classes are no longer candidates for proxy generation. Fields typed as abstract classes (e.g. `Widget`, `Listenable`) and collection element/key/value types that are abstract now fall back to plain reactive scalars or unwrapped `LiveList`/`LiveSet`/`LiveMap` — preventing compile errors from unimplemented abstract members in the generated `_Live<ClassName>` subclass.
+
+## 1.0.1
+
+- Patch release — dependency and tooling bumps.
+
 ## 1.0.0
 
 - Initial release.
