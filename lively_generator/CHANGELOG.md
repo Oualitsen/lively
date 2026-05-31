@@ -1,3 +1,7 @@
+## 1.1.0
+
+- Generator now throws a clear `InvalidGenerationSourceError` when a `@Live()` class does not extend `_$ClassName`, or a `@LiveStore()` class does not extend `_$StoreName`. The error message includes the exact fix required, so you get an actionable build-time message instead of non-compilable generated code.
+
 ## 1.0.1
 
 - Added example demonstrating `@Live()` and `@LiveStore()` annotated classes.
