@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
@@ -39,22 +40,32 @@ class LivelyGenerator extends Generator {
   };
 
   @override
-  FutureOr<String?> generate(LibraryReader library, BuildStep buildStep) {
+  Future<String?> generate(LibraryReader library, BuildStep buildStep) async {
     final key = buildStep.inputId.path;
     _currentFileKey = key;
     _emittedByFile.putIfAbsent(key, () => {});
+
+    final storeAnnotated = library.annotatedWith(_liveStoreChecker).toList();
+    final liveAnnotated = library.annotatedWith(_liveChecker).toList();
+
+    if (storeAnnotated.isEmpty && liveAnnotated.isEmpty) return null;
+
+    await _checkPartDirective(library, buildStep, [
+      ...storeAnnotated,
+      ...liveAnnotated,
+    ]);
 
     final parts = <String>[];
 
     // Stores first so their proxy classes are in _emittedByFile before widgets
     // in the same file are processed.
-    for (final el in library.annotatedWith(_liveStoreChecker)) {
+    for (final el in storeAnnotated) {
       if (el.element is ClassElement) {
         parts.add(_generateStore(el.element as ClassElement));
       }
     }
 
-    for (final el in library.annotatedWith(_liveChecker)) {
+    for (final el in liveAnnotated) {
       if (el.element is ClassElement) {
         parts.add(_generate(el.element as ClassElement));
       }
@@ -68,10 +79,43 @@ class LivelyGenerator extends Generator {
     return code;
   }
 
+  Future<void> _checkPartDirective(
+    LibraryReader library,
+    BuildStep buildStep,
+    List<AnnotatedElement> annotated,
+  ) async {
+    final inputPath = buildStep.inputId.path;
+    final basename = inputPath.split('/').last;
+    final expectedPart = basename.replaceAll('.dart', '.g.dart');
+
+    final unit = await buildStep.resolver.compilationUnitFor(buildStep.inputId);
+    final hasPart = unit.directives
+        .whereType<PartDirective>()
+        .any((d) => d.uri.stringValue == expectedPart);
+
+    if (!hasPart) {
+      throw InvalidGenerationSourceError(
+        "Missing part directive. Add this line near the top of your file:\n\n"
+        "    part '$expectedPart';",
+        element: annotated.first.element,
+      );
+    }
+  }
+
   // ── @Live() widget generation ──────────────────────────────────────────────
 
   String _generate(ClassElement classEl) {
     final className = classEl.name;
+    final expectedBase = '_\$$className';
+    final actualBase = classEl.supertype?.element?.name;
+    if (actualBase != expectedBase) {
+      throw InvalidGenerationSourceError(
+        '@Live() class must extend $expectedBase. '
+        'Change your declaration to:\n\n'
+        '    class $className extends $expectedBase { ... }',
+        element: classEl,
+      );
+    }
     final widgetClassName = '${className}Widget';
     final implClassName = className.startsWith('_')
         ? '_\$${className.substring(1)}Impl'
@@ -584,6 +628,16 @@ class LivelyGenerator extends Generator {
     final specName = classEl.name;              // e.g. _UserStore
     final publicName = specName.substring(1);   // e.g. UserStore
     final baseName = '_\$$publicName';          // e.g. _$UserStore
+    final expectedBase = baseName;
+    final actualBase = classEl.supertype?.element?.name;
+    if (actualBase != expectedBase) {
+      throw InvalidGenerationSourceError(
+        '@LiveStore() class must extend $expectedBase. '
+        'Change your declaration to:\n\n'
+        '    class $specName extends $expectedBase { ... }',
+        element: classEl,
+      );
+    }
 
     final fields =
         classEl.fields.where((f) => !f.isSynthetic && !f.isStatic).toList();
@@ -697,7 +751,31 @@ class LivelyGenerator extends Generator {
         disposableFields,
         effectiveProxyFields,
       ),
+      _buildStoreProvider(publicName),
     ].join('\n');
+  }
+
+  String _buildStoreProvider(String publicName) {
+    final providerName = '${publicName}Provider';
+    final sb = StringBuffer();
+    sb.writeln('class $providerName extends InheritedNotifier<$publicName> {');
+    sb.writeln('  const $providerName({');
+    sb.writeln('    super.key,');
+    sb.writeln('    required $publicName store,');
+    sb.writeln('    required super.child,');
+    sb.writeln('  }) : super(notifier: store);');
+    sb.writeln();
+    sb.writeln('  static $publicName of(BuildContext context) {');
+    sb.writeln('    final result = context');
+    sb.writeln('        .dependOnInheritedWidgetOfExactType<$providerName>();');
+    sb.writeln("    assert(result != null, 'No $providerName found in widget tree.');");
+    sb.writeln('    return result!.notifier!;');
+    sb.writeln('  }');
+    sb.writeln();
+    sb.writeln('  static $publicName? maybeOf(BuildContext context) =>');
+    sb.writeln('      context.dependOnInheritedWidgetOfExactType<$providerName>()?.notifier;');
+    sb.writeln('}');
+    return sb.toString();
   }
 
   // ── abstract ChangeNotifier base ─────────────────────────────────────────

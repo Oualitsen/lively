@@ -1186,6 +1186,148 @@ class CheckoutPage extends _$CheckoutPage {
       );
     });
   });
+
+  // ── InheritedNotifier provider ────────────────────────────────────────────
+
+  group('InheritedNotifier provider', () {
+    test('generates a provider class for every @LiveStore', () async {
+      await _build(
+        source: r'''
+@LiveStore()
+class _Counter extends _$Counter {
+  int count = 0;
+}
+''',
+        expect: [
+          contains('class CounterProvider extends InheritedNotifier<Counter>'),
+          contains('required Counter store'),
+          contains('super(notifier: store)'),
+          contains('static Counter of(BuildContext context)'),
+          contains('dependOnInheritedWidgetOfExactType<CounterProvider>()'),
+          contains("assert(result != null, 'No CounterProvider found in widget tree.')"),
+          contains('return result!.notifier!'),
+          contains('static Counter? maybeOf(BuildContext context)'),
+        ],
+      );
+    });
+
+    test('provider name is <StoreName>Provider', () async {
+      await _build(
+        source: r'''
+@LiveStore()
+class _ShoppingCart extends _$ShoppingCart {
+  int itemCount = 0;
+}
+''',
+        expect: [
+          contains('class ShoppingCartProvider extends InheritedNotifier<ShoppingCart>'),
+          contains('static ShoppingCart of(BuildContext context)'),
+          contains('static ShoppingCart? maybeOf(BuildContext context)'),
+        ],
+      );
+    });
+  });
+
+  // ── missing extends clause ────────────────────────────────────────────────
+
+  group('missing extends clause', () {
+    test('throws a clear error for @Live() without extends _\$ClassName',
+        () async {
+      await _buildRaw(
+        source: """
+import 'package:flutter/widgets.dart';
+import 'package:lively/lively.dart';
+
+part 'example.g.dart';
+
+@Live()
+class Counter {
+  int count = 0;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+""",
+        onError: (e) => expect(
+          e.toString(),
+          allOf(
+            contains('extends _\$Counter'),
+            contains('@Live() class must extend'),
+          ),
+        ),
+      );
+    });
+
+    test('throws a clear error for @LiveStore() without extends _\$StoreName',
+        () async {
+      await _buildRaw(
+        source: """
+import 'package:lively/lively.dart';
+
+part 'example.g.dart';
+
+@LiveStore()
+class _Counter {
+  int count = 0;
+}
+""",
+        onError: (e) => expect(
+          e.toString(),
+          allOf(
+            contains('extends _\$Counter'),
+            contains('@LiveStore() class must extend'),
+          ),
+        ),
+      );
+    });
+  });
+
+  // ── missing part directive ─────────────────────────────────────────────────
+
+  group('missing part directive', () {
+    const sourceWithoutPart = """
+import 'package:flutter/widgets.dart';
+import 'package:lively/lively.dart';
+
+@Live()
+class Counter extends _\$Counter {
+  int count = 0;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+""";
+
+    test('throws a clear error for @Live() without part directive', () async {
+      await _buildRaw(
+        source: sourceWithoutPart,
+        onError: (e) => expect(
+          e.toString(),
+          allOf(
+            contains("part 'example.g.dart'"),
+            contains('Missing part directive'),
+          ),
+        ),
+      );
+    });
+
+    test('throws a clear error for @LiveStore() without part directive',
+        () async {
+      await _buildRaw(
+        source: """
+import 'package:lively/lively.dart';
+
+@LiveStore()
+class _Counter {
+  int count = 0;
+}
+""",
+        onError: (e) => expect(
+          e.toString(),
+          allOf(
+            contains("part 'example.g.dart'"),
+            contains('Missing part directive'),
+          ),
+        ),
+      );
+    });
+  });
 }
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -1205,6 +1347,22 @@ Future<void> _build({
       'myapp|lib/example.lively.g.part': decodedMatches(allOf(expect)),
     },
   );
+}
+
+Future<void> _buildRaw({
+  required String source,
+  required void Function(Object) onError,
+}) async {
+  try {
+    await testBuilder(
+      livelyBuilder(BuilderOptions.empty),
+      {..._stubs, 'myapp|lib/example.dart': source},
+      outputs: {},
+    );
+    fail('Expected an error but none was thrown');
+  } catch (e) {
+    onError(e);
+  }
 }
 
 String _wrap(String body, [String extraImports = '']) => """
