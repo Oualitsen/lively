@@ -4,7 +4,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
-import 'package:lively/src/annotations.dart';
+import 'package:lively/src/annotations.dart' show Live, LiveStore, Computed;
 import 'package:lively_generator/src/dart_code_gen_utils.dart';
 import 'package:source_gen/source_gen.dart';
 
@@ -13,6 +13,7 @@ class LivelyGenerator extends Generator {
 
   static final _liveChecker = TypeChecker.fromRuntime(Live);
   static final _liveStoreChecker = TypeChecker.fromRuntime(LiveStore);
+  static final _computedChecker = TypeChecker.fromRuntime(Computed);
 
   // Tracks which _Live<ClassName> proxy classes have been emitted per source
   // file so that two widgets/stores in the same file sharing a type don't
@@ -50,10 +51,7 @@ class LivelyGenerator extends Generator {
 
     if (storeAnnotated.isEmpty && liveAnnotated.isEmpty) return null;
 
-    await _checkPartDirective(library, buildStep, [
-      ...storeAnnotated,
-      ...liveAnnotated,
-    ]);
+    await _checkPartDirective(library, buildStep, liveAnnotated, storeAnnotated);
 
     final parts = <String>[];
 
@@ -82,13 +80,15 @@ class LivelyGenerator extends Generator {
   Future<void> _checkPartDirective(
     LibraryReader library,
     BuildStep buildStep,
-    List<AnnotatedElement> annotated,
+    List<AnnotatedElement> liveAnnotated,
+    List<AnnotatedElement> storeAnnotated,
   ) async {
     final inputPath = buildStep.inputId.path;
     final basename = inputPath.split('/').last;
     final expectedPart = basename.replaceAll('.dart', '.g.dart');
 
     final unit = await buildStep.resolver.compilationUnitFor(buildStep.inputId);
+
     final hasPart = unit.directives
         .whereType<PartDirective>()
         .any((d) => d.uri.stringValue == expectedPart);
@@ -97,8 +97,53 @@ class LivelyGenerator extends Generator {
       throw InvalidGenerationSourceError(
         "Missing part directive. Add this line near the top of your file:\n\n"
         "    part '$expectedPart';",
-        element: annotated.first.element,
+        element: [...liveAnnotated, ...storeAnnotated].first.element,
       );
+    }
+
+    final classDecls =
+        unit.declarations.whereType<ClassDeclaration>().toList();
+
+    for (final el in liveAnnotated) {
+      if (el.element is! ClassElement) continue;
+      final classEl = el.element as ClassElement;
+      final className = classEl.name;
+      final expectedBase = '_\$$className';
+      final decl = classDecls.firstWhere(
+        (d) => d.name.lexeme == className,
+        orElse: () => throw StateError('Class $className not found in AST'),
+      );
+      final actualBase = decl.extendsClause?.superclass.name2.lexeme;
+      if (actualBase != expectedBase) {
+        throw InvalidGenerationSourceError(
+          '@Live() class must extend $expectedBase. '
+          'Change your declaration to:\n\n'
+          '    class $className extends $expectedBase { ... }',
+          element: classEl,
+        );
+      }
+    }
+
+    for (final el in storeAnnotated) {
+      if (el.element is! ClassElement) continue;
+      final classEl = el.element as ClassElement;
+      final specName = classEl.name;
+      if (!specName.startsWith('_')) continue; // name check handled in _generateStore
+      final publicName = specName.substring(1);
+      final expectedBase = '_\$$publicName';
+      final decl = classDecls.firstWhere(
+        (d) => d.name.lexeme == specName,
+        orElse: () => throw StateError('Class $specName not found in AST'),
+      );
+      final actualBase = decl.extendsClause?.superclass.name2.lexeme;
+      if (actualBase != expectedBase) {
+        throw InvalidGenerationSourceError(
+          '@LiveStore() class must extend $expectedBase. '
+          'Change your declaration to:\n\n'
+          '    class $specName extends $expectedBase { ... }',
+          element: classEl,
+        );
+      }
     }
   }
 
@@ -106,16 +151,6 @@ class LivelyGenerator extends Generator {
 
   String _generate(ClassElement classEl) {
     final className = classEl.name;
-    final expectedBase = '_\$$className';
-    final actualBase = classEl.supertype?.element?.name;
-    if (actualBase != expectedBase) {
-      throw InvalidGenerationSourceError(
-        '@Live() class must extend $expectedBase. '
-        'Change your declaration to:\n\n'
-        '    class $className extends $expectedBase { ... }',
-        element: classEl,
-      );
-    }
     final widgetClassName = '${className}Widget';
     final implClassName = className.startsWith('_')
         ? '_\$${className.substring(1)}Impl'
@@ -163,6 +198,10 @@ class LivelyGenerator extends Generator {
         _warnIfProxyFallback(f, className);
       }
     }
+
+    final computedGetters = classEl.accessors
+        .where((a) => a.isGetter && !a.isSynthetic && _computedChecker.hasAnnotationOf(a))
+        .toList();
 
     final proxyCode = <String>[];
     final effectiveProxyFields = <FieldElement>[];
@@ -235,6 +274,7 @@ class LivelyGenerator extends Generator {
         changeNotifierFields,
         ownedStoreFields,
         effectiveProxyFields,
+        computedGetters,
       ),
     ].join('\n');
   }
@@ -353,8 +393,28 @@ class LivelyGenerator extends Generator {
     List<FieldElement> changeNotifierFields,
     List<FieldElement> ownedStoreFields,
     List<FieldElement> proxyFields,
+    List<PropertyAccessorElement> computedGetters,
   ) {
     final members = <String>[];
+    final dirtyMarks = computedGetters.map((a) => '_\$${a.name}Dirty = true;').toList();
+
+    // ── @computed backing fields, dirty flags, and getter overrides ──────────
+    for (final a in computedGetters) {
+      final returnType = a.returnType.getDisplayString(withNullability: true);
+      members
+        ..add('$returnType? _\$${a.name};')
+        ..add('bool _\$${a.name}Dirty = true;')
+        ..add(_gen.createMethod(
+          returnType: returnType,
+          methodName: 'get ${a.name}',
+          arguments: null,
+          statements: [
+            'if (_\$${a.name}Dirty) { _\$${a.name} = super.${a.name}; _\$${a.name}Dirty = false; }',
+            'return _\$${a.name}!;',
+          ],
+          override: true,
+        ));
+    }
 
     for (final f in reactiveFields) {
       members.add(_gen.createMethod(
@@ -362,7 +422,7 @@ class LivelyGenerator extends Generator {
         methodName: f.name,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
-        statements: ['super.${f.name} = v;', '_scheduleRebuild();'],
+        statements: ['super.${f.name} = v;', ...dirtyMarks, '_scheduleRebuild();'],
         override: true,
       ));
     }
@@ -379,6 +439,7 @@ class LivelyGenerator extends Generator {
           '_old${op}removeListener(_scheduleRebuild);',
           'super.${f.name} = v;',
           'v${op}addListener(_scheduleRebuild);',
+          ...dirtyMarks,
           '_scheduleRebuild();',
         ],
         override: true,
@@ -398,6 +459,7 @@ class LivelyGenerator extends Generator {
           '_old${op}removeListener(_scheduleRebuild);',
           'super.${f.name} = v;',
           'v${op}addListener(_scheduleRebuild);',
+          ...dirtyMarks,
           '_scheduleRebuild();',
         ],
         override: true,
@@ -413,6 +475,7 @@ class LivelyGenerator extends Generator {
         namedArguments: false,
         statements: [
           'super.${f.name} = $proxyType.from(v, _scheduleRebuild);',
+          ...dirtyMarks,
           '_scheduleRebuild();',
         ],
         override: true,
@@ -440,6 +503,7 @@ class LivelyGenerator extends Generator {
           namedArguments: false,
           statements: [
             '_\$$name = LiveList.of(v, _scheduleRebuild$wrap);',
+            ...dirtyMarks,
             '_scheduleRebuild();',
           ],
           override: true,
@@ -467,6 +531,7 @@ class LivelyGenerator extends Generator {
           namedArguments: false,
           statements: [
             '_\$$name = LiveSet.of(v, _scheduleRebuild$wrap);',
+            ...dirtyMarks,
             '_scheduleRebuild();',
           ],
           override: true,
@@ -496,6 +561,7 @@ class LivelyGenerator extends Generator {
           namedArguments: false,
           statements: [
             '_\$$name = LiveMap.of(v, _scheduleRebuild$wrapKey$wrapValue);',
+            ...dirtyMarks,
             '_scheduleRebuild();',
           ],
           override: true,
@@ -628,16 +694,6 @@ class LivelyGenerator extends Generator {
     final specName = classEl.name;              // e.g. _UserStore
     final publicName = specName.substring(1);   // e.g. UserStore
     final baseName = '_\$$publicName';          // e.g. _$UserStore
-    final expectedBase = baseName;
-    final actualBase = classEl.supertype?.element?.name;
-    if (actualBase != expectedBase) {
-      throw InvalidGenerationSourceError(
-        '@LiveStore() class must extend $expectedBase. '
-        'Change your declaration to:\n\n'
-        '    class $specName extends $expectedBase { ... }',
-        element: classEl,
-      );
-    }
 
     final fields =
         classEl.fields.where((f) => !f.isSynthetic && !f.isStatic).toList();
@@ -681,6 +737,10 @@ class LivelyGenerator extends Generator {
         _warnIfProxyFallback(f, specName);
       }
     }
+
+    final computedGetters = classEl.accessors
+        .where((a) => a.isGetter && !a.isSynthetic && _computedChecker.hasAnnotationOf(a))
+        .toList();
 
     final proxyCode = <String>[];
     final effectiveProxyFields = <FieldElement>[];
@@ -750,6 +810,7 @@ class LivelyGenerator extends Generator {
         rxMapFields,
         disposableFields,
         effectiveProxyFields,
+        computedGetters,
       ),
       _buildStoreProvider(publicName),
     ].join('\n');
@@ -839,8 +900,28 @@ class LivelyGenerator extends Generator {
     List<FieldElement> rxMapFields,
     List<FieldElement> disposableFields,
     List<FieldElement> proxyFields,
+    List<PropertyAccessorElement> computedGetters,
   ) {
     final members = <String>[];
+    final dirtyMarks = computedGetters.map((a) => '_\$${a.name}Dirty = true;').toList();
+
+    // ── @computed backing fields, dirty flags, and getter overrides ──────────
+    for (final a in computedGetters) {
+      final returnType = a.returnType.getDisplayString(withNullability: true);
+      members
+        ..add('$returnType? _\$${a.name};')
+        ..add('bool _\$${a.name}Dirty = true;')
+        ..add(_gen.createMethod(
+          returnType: returnType,
+          methodName: 'get ${a.name}',
+          arguments: null,
+          statements: [
+            'if (_\$${a.name}Dirty) { _\$${a.name} = super.${a.name}; _\$${a.name}Dirty = false; }',
+            'return _\$${a.name}!;',
+          ],
+          override: true,
+        ));
+    }
 
     // ── reactive scalar setters ──────────────────────────────────────────
     for (final f in reactiveFields) {
@@ -849,7 +930,7 @@ class LivelyGenerator extends Generator {
         methodName: f.name,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
-        statements: ['super.${f.name} = v;', '_scheduleNotify();'],
+        statements: ['super.${f.name} = v;', ...dirtyMarks, '_scheduleNotify();'],
         override: true,
       ));
     }
@@ -867,6 +948,7 @@ class LivelyGenerator extends Generator {
           '_old${op}removeListener(_scheduleNotify);',
           'super.${f.name} = v;',
           'v${op}addListener(_scheduleNotify);',
+          ...dirtyMarks,
           '_scheduleNotify();',
         ],
         override: true,
@@ -886,6 +968,7 @@ class LivelyGenerator extends Generator {
           '_old${op}removeListener(_scheduleNotify);',
           'super.${f.name} = v;',
           'v${op}addListener(_scheduleNotify);',
+          ...dirtyMarks,
           '_scheduleNotify();',
         ],
         override: true,
@@ -902,6 +985,7 @@ class LivelyGenerator extends Generator {
         namedArguments: false,
         statements: [
           'super.${f.name} = $proxyType.from(v, _scheduleNotify);',
+          ...dirtyMarks,
           '_scheduleNotify();',
         ],
         override: true,
@@ -930,6 +1014,7 @@ class LivelyGenerator extends Generator {
           namedArguments: false,
           statements: [
             '_\$$name = LiveList.of(v, _scheduleNotify$wrap);',
+            ...dirtyMarks,
             '_scheduleNotify();',
           ],
           override: true,
@@ -957,6 +1042,7 @@ class LivelyGenerator extends Generator {
           namedArguments: false,
           statements: [
             '_\$$name = LiveSet.of(v, _scheduleNotify$wrap);',
+            ...dirtyMarks,
             '_scheduleNotify();',
           ],
           override: true,
@@ -986,6 +1072,7 @@ class LivelyGenerator extends Generator {
           namedArguments: false,
           statements: [
             '_\$$name = LiveMap.of(v, _scheduleNotify$wrapKey$wrapValue);',
+            ...dirtyMarks,
             '_scheduleNotify();',
           ],
           override: true,

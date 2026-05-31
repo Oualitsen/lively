@@ -1,5 +1,6 @@
 ## 1.1.0
 
+- **`@computed` fields** — annotate a getter with `@computed` to cache its result and only recompute when any reactive field changes. The generator emits a nullable backing field, a dirty flag (starts `true`), and an overridden getter that recomputes lazily. Every reactive setter (scalar, collection, proxy, ChangeNotifier) marks all `@computed` getters dirty before scheduling a rebuild. Works in both `@Live()` widgets and `@LiveStore` classes.
 - Generator now throws a clear `InvalidGenerationSourceError` when a `@Live()` class does not extend `_$ClassName`, or a `@LiveStore()` class does not extend `_$StoreName`. The error message includes the exact fix required, so you get an actionable build-time message instead of non-compilable generated code.
 
 ## 1.0.1

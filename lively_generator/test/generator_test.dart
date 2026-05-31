@@ -796,6 +796,97 @@ class ProfilePage extends _$ProfilePage {
         ],
       );
     });
+
+    // ── @computed fields ───────────────────────────────────────────────────
+
+    test('@computed getter generates backing field, dirty flag, and override',
+        () async {
+      await _build(
+        source: r'''
+@Live()
+class SearchPage extends _$SearchPage {
+  String query = '';
+  List<String> items = [];
+
+  @computed
+  List<String> get results =>
+      items.where((i) => i.contains(query)).toList();
+
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          // backing field and dirty flag
+          contains('List<String>? _\$results'),
+          contains('bool _\$resultsDirty = true'),
+          // getter override with lazy recompute
+          contains('get results'),
+          contains('if (_\$resultsDirty)'),
+          contains('_\$results = super.results'),
+          contains('_\$resultsDirty = false'),
+          contains('return _\$results!'),
+        ],
+      );
+    });
+
+    test('@computed dirty flag is set in all reactive setters', () async {
+      await _build(
+        source: r'''
+@Live()
+class SearchPage extends _$SearchPage {
+  String query = '';
+  List<String> items = [];
+
+  @computed
+  List<String> get results =>
+      items.where((i) => i.contains(query)).toList();
+
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          // reactive scalar setter marks dirty
+          contains('set query(String v)'),
+          // list setter marks dirty
+          contains('set items(List<String> v)'),
+          // both setters contain the dirty mark
+          matches(RegExp(r'set query[\s\S]*?_\$resultsDirty = true')),
+          matches(RegExp(r'set items[\s\S]*?_\$resultsDirty = true')),
+        ],
+      );
+    });
+
+    test('multiple @computed getters each get independent dirty flags',
+        () async {
+      await _build(
+        source: r'''
+@Live()
+class FilterPage extends _$FilterPage {
+  String query = '';
+  int minAge = 0;
+
+  @computed
+  String get upperQuery => query.toUpperCase();
+
+  @computed
+  bool get hasFilter => query.isNotEmpty || minAge > 0;
+
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          contains('String? _\$upperQuery'),
+          contains('bool _\$upperQueryDirty = true'),
+          contains('bool? _\$hasFilter'),
+          contains('bool _\$hasFilterDirty = true'),
+          // every reactive setter marks ALL computed getters dirty
+          matches(RegExp(r'set query[\s\S]*?_\$upperQueryDirty = true')),
+          matches(RegExp(r'set query[\s\S]*?_\$hasFilterDirty = true')),
+          matches(RegExp(r'set minAge[\s\S]*?_\$upperQueryDirty = true')),
+          matches(RegExp(r'set minAge[\s\S]*?_\$hasFilterDirty = true')),
+        ],
+      );
+    });
   });
 
   // ── @LiveStore tests ──────────────────────────────────────────────────────
@@ -1185,6 +1276,37 @@ class CheckoutPage extends _$CheckoutPage {
         ],
       );
     });
+
+    // ── @computed fields ───────────────────────────────────────────────────
+
+    test('@computed getter in @LiveStore generates backing field, dirty flag, and override',
+        () async {
+      await _build(
+        source: r'''
+@LiveStore()
+class _SearchStore extends _$SearchStore {
+  String query = '';
+  List<String> items = [];
+
+  @computed
+  List<String> get results =>
+      items.where((i) => i.contains(query)).toList();
+}
+''',
+        expect: [
+          contains('List<String>? _\$results'),
+          contains('bool _\$resultsDirty = true'),
+          contains('get results'),
+          contains('if (_\$resultsDirty)'),
+          contains('_\$results = super.results'),
+          contains('_\$resultsDirty = false'),
+          contains('return _\$results!'),
+          // reactive setters mark dirty
+          matches(RegExp(r'set query[\s\S]*?_\$resultsDirty = true')),
+          matches(RegExp(r'set items[\s\S]*?_\$resultsDirty = true')),
+        ],
+      );
+    });
   });
 
   // ── InheritedNotifier provider ────────────────────────────────────────────
@@ -1440,6 +1562,10 @@ class Live {
 class LiveStore {
   const LiveStore();
 }
+class Computed {
+  const Computed();
+}
+const computed = Computed();
 ''',
   'lively|lib/src/reactive.dart': r'''
 import 'package:flutter/widgets.dart';
