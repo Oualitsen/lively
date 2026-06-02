@@ -435,7 +435,7 @@ class LivelyGenerator extends Generator {
 
     // ── @computed backing fields, dirty flags, and getter overrides ──────────
     for (final a in computedGetters) {
-      final returnType = a.returnType.getDisplayString(withNullability: true);
+      final returnType = a.returnType.getDisplayString();
       members
         ..add('$returnType? _\$${a.name};')
         ..add('bool _\$${a.name}Dirty = true;')
@@ -747,7 +747,6 @@ class LivelyGenerator extends Generator {
           }),
           ...streamFields.map((f) {
             final name = f.name;
-            final t = _asyncTypeArg(f);
             return '_\$${name}Sub = $name.listen(\n'
                 '  (value) { if (mounted) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } },\n'
                 '  onError: (Object e, StackTrace s) { if (mounted) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } },\n'
@@ -1063,7 +1062,7 @@ class LivelyGenerator extends Generator {
 
     // ── @computed backing fields, dirty flags, and getter overrides ──────────
     for (final a in computedGetters) {
-      final returnType = a.returnType.getDisplayString(withNullability: true);
+      final returnType = a.returnType.getDisplayString();
       members
         ..add('$returnType? _\$${a.name};')
         ..add('bool _\$${a.name}Dirty = true;')
@@ -1349,7 +1348,6 @@ class LivelyGenerator extends Generator {
       // Wire Stream fields.
       ...streamFields.map((f) {
         final name = f.name;
-        final t = _asyncTypeArg(f);
         return '_\$${name}Sub = $name.listen(\n'
             '  (value) { if (!_\$asyncDisposed) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } },\n'
             '  onError: (Object e, StackTrace s) { if (!_\$asyncDisposed) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } },\n'
@@ -1578,7 +1576,7 @@ class LivelyGenerator extends Generator {
   // ── helpers ──────────────────────────────────────────────────────────────
 
   String _type(FieldElement f) =>
-      f.type.getDisplayString(withNullability: true);
+      f.type.getDisplayString();
 
   bool _isDartList(FieldElement f) => f.type.element?.name == 'List';
 
@@ -1593,7 +1591,7 @@ class LivelyGenerator extends Generator {
   String _asyncTypeArg(FieldElement f) {
     final type = f.type;
     if (type is! InterfaceType || type.typeArguments.isEmpty) return 'dynamic';
-    return type.typeArguments.first.getDisplayString(withNullability: true);
+    return type.typeArguments.first.getDisplayString();
   }
 
   String _capitalize(String s) =>
@@ -1623,13 +1621,13 @@ class LivelyGenerator extends Generator {
   String _mapKeyType(FieldElement f) {
     final type = f.type;
     if (type is! InterfaceType || type.typeArguments.length < 2) return 'dynamic';
-    return type.typeArguments[0].getDisplayString(withNullability: true);
+    return type.typeArguments[0].getDisplayString();
   }
 
   String _mapValueType(FieldElement f) {
     final type = f.type;
     if (type is! InterfaceType || type.typeArguments.length < 2) return 'dynamic';
-    return type.typeArguments[1].getDisplayString(withNullability: true);
+    return type.typeArguments[1].getDisplayString();
   }
 
   ClassElement? _mapKeyClassElement(FieldElement f) {
