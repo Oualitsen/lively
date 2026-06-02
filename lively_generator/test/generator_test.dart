@@ -719,7 +719,7 @@ class MyPage extends _$MyPage {
           contains('void didUpdateWidget('),
           contains('widget.value != old.value'),
           contains('super.value = widget.value'),
-          contains('if (_changed) _scheduleRebuild()'),
+          contains(r'if ($changed) _scheduleRebuild()'),
         ],
       );
     });
@@ -888,6 +888,122 @@ class FilterPage extends _$FilterPage {
       );
     });
   });
+
+  // ── Future<T> / Stream<T> fields ──────────────────────────────────────────
+
+    group('async fields', () {
+      test('Future<T> field generates state backing, getter, setter and build helper',
+          () async {
+        await _build(
+          source: r'''
+@Live()
+class ProfilePage extends _$ProfilePage {
+  Future<String> username = Future.value('Alice');
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+          expect: [
+            // backing field and generation counter
+            contains('AsyncValue<String> _\$usernameState = const AsyncLoading()'),
+            contains('int _\$usernameGen = 0'),
+            // state getter
+            contains('get usernameState'),
+            contains('return _\$usernameState'),
+            // setter resets to loading and rewires the future
+            contains('set username(Future<String> v)'),
+            contains('_\$usernameState = const AsyncLoading()'),
+            contains('_\$usernameGen'),
+            contains('AsyncData(value)'),
+            contains('AsyncError(e, s)'),
+            // build helper
+            contains('Widget buildUsername('),
+            contains('required Widget Function(String value) data'),
+            contains('Widget Function()? loading'),
+            contains('Widget Function(Object error)? error'),
+            contains('AsyncLoading<String>()'),
+            contains('CircularProgressIndicator'),
+            contains('AsyncData<String>(:final value)'),
+          ],
+        );
+      });
+
+      test('Future<T> field wires in initState', () async {
+        await _build(
+          source: r'''
+@Live()
+class ProfilePage extends _$ProfilePage {
+  Future<String> username = Future.value('Alice');
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+          expect: [
+            contains('initState'),
+            contains('username.then'),
+            contains('mounted'),
+          ],
+        );
+      });
+
+      test('Stream<T> field generates state backing, subscription, getter, setter and build helper',
+          () async {
+        await _build(
+          source: r'''
+@Live()
+class PricePage extends _$PricePage {
+  Stream<double> price = Stream.value(0.0);
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+          expect: [
+            contains('AsyncValue<double> _\$priceState = const AsyncLoading()'),
+            contains('StreamSubscription<double>? _\$priceSub'),
+            contains('get priceState'),
+            contains('set price(Stream<double> v)'),
+            contains('_\$priceSub?.cancel()'),
+            contains('_\$priceSub = v.listen'),
+            contains('Widget buildPrice('),
+            contains('required Widget Function(double value) data'),
+            contains('AsyncLoading<double>()'),
+            contains('AsyncData<double>(:final value)'),
+          ],
+        );
+      });
+
+      test('Stream<T> subscription is cancelled in dispose', () async {
+        await _build(
+          source: r'''
+@Live()
+class PricePage extends _$PricePage {
+  Stream<double> price = Stream.value(0.0);
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+          expect: [
+            contains('dispose'),
+            contains('_\$priceSub?.cancel()'),
+          ],
+        );
+      });
+
+      test('build helper loading and error params are optional with defaults',
+          () async {
+        await _build(
+          source: r'''
+@Live()
+class ProfilePage extends _$ProfilePage {
+  Future<String> username = Future.value('Alice');
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+          expect: [
+            contains('loading?.call() ??'),
+            contains('const CircularProgressIndicator()'),
+            contains('error?.call(e) ??'),
+            contains('const SizedBox.shrink()'),
+          ],
+        );
+      });
+    });
 
   // ── @LiveStore tests ──────────────────────────────────────────────────────
 
@@ -1109,7 +1225,7 @@ class _AppStore extends _$AppStore {
       await _build(
         source: r'''
 @LiveStore()
-class _CartStore extends ChangeNotifier {
+class _CartStore extends _$CartStore {
   int items = 0;
 }
 
@@ -1209,9 +1325,8 @@ class _UserStore extends _$UserStore {
         () async {
       await _build(
         source: r'''
-// _CartStore has @LiveStore and extends ChangeNotifier directly for test resolution.
 @LiveStore()
-class _CartStore extends ChangeNotifier {
+class _CartStore extends _$CartStore {
   int items = 0;
 }
 
@@ -1234,7 +1349,7 @@ class CheckoutPage extends _$CheckoutPage {
       await _build(
         source: r'''
 @LiveStore()
-class _CartStore extends ChangeNotifier {
+class _CartStore extends _$CartStore {
   int items = 0;
 }
 
@@ -1257,7 +1372,7 @@ class CheckoutPage extends _$CheckoutPage {
       await _build(
         source: r'''
 @LiveStore()
-class _CartStore extends ChangeNotifier {
+class _CartStore extends _$CartStore {
   int items = 0;
 }
 
@@ -1543,6 +1658,8 @@ class ChangeNotifier {
   void notifyListeners() {}
   void dispose() {}
 }
+class CircularProgressIndicator extends Widget { const CircularProgressIndicator(); }
+class StreamSubscription<T> { void cancel() {} }
 ''',
   'flutter|lib/foundation.dart': r'''
 library flutter.foundation;
@@ -1550,10 +1667,17 @@ bool listEquals<T>(List<T>? a, List<T>? b) => false;
 ''',
   'lively|lib/lively.dart': '''
 export 'src/annotations.dart';
+export 'src/async_value.dart';
 export 'src/reactive.dart';
 export 'src/live_list.dart';
 export 'src/live_set.dart';
 export 'src/live_map.dart';
+''',
+  'lively|lib/src/async_value.dart': '''
+sealed class AsyncValue<T> {}
+final class AsyncLoading<T> extends AsyncValue<T> { const AsyncLoading(); }
+final class AsyncData<T> extends AsyncValue<T> { const AsyncData(this.value); final T value; }
+final class AsyncError<T> extends AsyncValue<T> { const AsyncError(this.error, [this.stackTrace = StackTrace.empty]); final Object error; final StackTrace stackTrace; }
 ''',
   'lively|lib/src/annotations.dart': '''
 class Live {

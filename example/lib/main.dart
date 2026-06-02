@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lively/lively.dart';
 
+import 'async_page.dart';
 import 'cart_page.dart';
 import 'cars_page.dart';
 import 'counter_page.dart';
@@ -37,8 +38,9 @@ class _Shell extends _$_Shell {
     UserModelPageWidget(),
     CounterWithParamsPageWidget(initialValue: 10, label: 'Params Demo'),
     CartPageWidget(),
+    AsyncPageWidget(),
   ];
-  static const _labels = ['Counter', 'Todos', 'Cars', 'RxObject', 'Params', 'Store'];
+  static const _labels = ['Counter', 'Todos', 'Cars', 'RxObject', 'Params', 'Store', 'Async'];
   static const _icons = [
     Icons.add_circle_outline,
     Icons.list_alt_outlined,
@@ -46,6 +48,7 @@ class _Shell extends _$_Shell {
     Icons.person_outline,
     Icons.tune,
     Icons.shopping_cart_outlined,
+    Icons.cloud_outlined,
   ];
 
   @override

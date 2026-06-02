@@ -162,6 +162,8 @@ class LivelyGenerator extends Generator {
     final paramFields = <FieldElement>[];
     final paramChangeNotifierFields = <FieldElement>[];
     final lateInitChangeNotifierFields = <FieldElement>[];
+    final futureFields = <FieldElement>[];
+    final streamFields = <FieldElement>[];
     final disposableFields = <FieldElement>[];
     final changeNotifierFields = <FieldElement>[];
     final ownedStoreFields = <FieldElement>[];
@@ -177,6 +179,10 @@ class LivelyGenerator extends Generator {
         if (_isChangeNotifier(f)) paramChangeNotifierFields.add(f);
       } else if (f.isFinal) {
         if (f.isLate && _isChangeNotifier(f)) lateInitChangeNotifierFields.add(f);
+      } else if (_isDartFuture(f)) {
+        futureFields.add(f);
+      } else if (_isDartStream(f)) {
+        streamFields.add(f);
       } else if (_isDisposable(f)) {
         disposableFields.add(f);
       } else if (_isChangeNotifier(f)) {
@@ -259,13 +265,15 @@ class LivelyGenerator extends Generator {
     return [
       ...proxyCode,
       _buildWidget(widgetClassName, implClassName, paramFields),
-      _buildBase(className, widgetClassName),
+      _buildBase(className, widgetClassName, futureFields, streamFields),
       _buildImpl(
         className,
         implClassName,
         paramFields,
         paramChangeNotifierFields,
         lateInitChangeNotifierFields,
+        futureFields,
+        streamFields,
         reactiveFields,
         rxListFields,
         rxSetFields,
@@ -322,7 +330,12 @@ class LivelyGenerator extends Generator {
 
   // ── abstract State base ──────────────────────────────────────────────────
 
-  String _buildBase(String className, String widgetClassName) {
+  String _buildBase(
+    String className,
+    String widgetClassName,
+    List<FieldElement> futureFields,
+    List<FieldElement> streamFields,
+  ) {
     final scheduleRebuild = _gen.method(
       returnType: 'void',
       methodName: '_scheduleRebuild',
@@ -354,6 +367,24 @@ class LivelyGenerator extends Generator {
       statements: ['super.dispose();'],
       override: true,
     );
+    // Concrete stubs so the user can call buildX() from their build() method.
+    // The impl overrides these with the real switch-on-AsyncValue body.
+    final asyncAbstracts = <String>[];
+    for (final f in [...futureFields, ...streamFields]) {
+      final name = f.name;
+      final t = _asyncTypeArg(f);
+      final cap = _capitalize(name);
+      asyncAbstracts
+        ..add('')
+        ..add(
+          'Widget build$cap({\n'
+          '  required Widget Function($t value) data,\n'
+          '  Widget Function()? loading,\n'
+          '  Widget Function(Object error)? error,\n'
+          "}) => throw UnimplementedError('build$cap');",
+        );
+    }
+
     return _gen.createInterface(
       className: '_\$$className',
       baseInterfaceNames: ['extends State<$widgetClassName>'],
@@ -373,6 +404,7 @@ class LivelyGenerator extends Generator {
         '',
         '@mustCallSuper',
         disposeStub,
+        ...asyncAbstracts,
       ],
     );
   }
@@ -385,6 +417,8 @@ class LivelyGenerator extends Generator {
     List<FieldElement> paramFields,
     List<FieldElement> paramChangeNotifierFields,
     List<FieldElement> lateInitChangeNotifierFields,
+    List<FieldElement> futureFields,
+    List<FieldElement> streamFields,
     List<FieldElement> reactiveFields,
     List<FieldElement> rxListFields,
     List<FieldElement> rxSetFields,
@@ -397,6 +431,7 @@ class LivelyGenerator extends Generator {
   ) {
     final members = <String>[];
     final dirtyMarks = computedGetters.map((a) => '_\$${a.name}Dirty = true;').toList();
+    final dirtyStr = dirtyMarks.isNotEmpty ? ' ${dirtyMarks.join(' ')}' : '';
 
     // ── @computed backing fields, dirty flags, and getter overrides ──────────
     for (final a in computedGetters) {
@@ -414,6 +449,96 @@ class LivelyGenerator extends Generator {
           ],
           override: true,
         ));
+    }
+
+    // ── Future<T> fields ─────────────────────────────────────────────────────
+    for (final f in futureFields) {
+      final name = f.name;
+      final t = _asyncTypeArg(f);
+      final cap = _capitalize(name);
+      members
+        ..add('AsyncValue<$t> _\$${name}State = const AsyncLoading();')
+        ..add('int _\$${name}Gen = 0;')
+        ..add(_gen.createMethod(
+          returnType: 'AsyncValue<$t>',
+          methodName: 'get ${name}State',
+          arguments: null,
+          statements: ['return _\$${name}State;'],
+        ))
+        ..add(_gen.createMethod(
+          returnType: 'set',
+          methodName: name,
+          arguments: ['Future<$t> v'],
+          namedArguments: false,
+          statements: [
+            'super.$name = v;',
+            '_\$${name}State = const AsyncLoading();',
+            ...dirtyMarks,
+            '_scheduleRebuild();',
+            'final \$gen = ++_\$${name}Gen;',
+            'v.then((value) { if (mounted && _\$${name}Gen == \$gen) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } })'
+            '.catchError((Object e, StackTrace s) { if (mounted && _\$${name}Gen == \$gen) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } });',
+          ],
+          override: true,
+        ))
+        ..add(
+          '@override\n'
+          'Widget build$cap({\n'
+          '  required Widget Function($t value) data,\n'
+          '  Widget Function()? loading,\n'
+          '  Widget Function(Object error)? error,\n'
+          '}) => switch (_\$${name}State) {\n'
+          '  AsyncLoading<$t>() => loading?.call() ?? const CircularProgressIndicator(),\n'
+          '  AsyncError<$t>(error: final e) => error?.call(e) ?? const SizedBox.shrink(),\n'
+          '  AsyncData<$t>(:final value) => data(value),\n'
+          '};',
+        );
+    }
+
+    // ── Stream<T> fields ─────────────────────────────────────────────────────
+    for (final f in streamFields) {
+      final name = f.name;
+      final t = _asyncTypeArg(f);
+      final cap = _capitalize(name);
+      members
+        ..add('AsyncValue<$t> _\$${name}State = const AsyncLoading();')
+        ..add('StreamSubscription<$t>? _\$${name}Sub;')
+        ..add(_gen.createMethod(
+          returnType: 'AsyncValue<$t>',
+          methodName: 'get ${name}State',
+          arguments: null,
+          statements: ['return _\$${name}State;'],
+        ))
+        ..add(_gen.createMethod(
+          returnType: 'set',
+          methodName: name,
+          arguments: ['Stream<$t> v'],
+          namedArguments: false,
+          statements: [
+            'super.$name = v;',
+            '_\$${name}Sub?.cancel();',
+            '_\$${name}State = const AsyncLoading();',
+            ...dirtyMarks,
+            '_scheduleRebuild();',
+            '_\$${name}Sub = v.listen(\n'
+            '  (value) { if (mounted) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } },\n'
+            '  onError: (Object e, StackTrace s) { if (mounted) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } },\n'
+            ');',
+          ],
+          override: true,
+        ))
+        ..add(
+          '@override\n'
+          'Widget build$cap({\n'
+          '  required Widget Function($t value) data,\n'
+          '  Widget Function()? loading,\n'
+          '  Widget Function(Object error)? error,\n'
+          '}) => switch (_\$${name}State) {\n'
+          '  AsyncLoading<$t>() => loading?.call() ?? const CircularProgressIndicator(),\n'
+          '  AsyncError<$t>(error: final e) => error?.call(e) ?? const SizedBox.shrink(),\n'
+          '  AsyncData<$t>(:final value) => data(value),\n'
+          '};',
+        );
     }
 
     for (final f in reactiveFields) {
@@ -569,6 +694,8 @@ class LivelyGenerator extends Generator {
     }
 
     final needsInitState = paramFields.isNotEmpty ||
+        futureFields.isNotEmpty ||
+        streamFields.isNotEmpty ||
         rxListFields.isNotEmpty ||
         rxSetFields.isNotEmpty ||
         rxMapFields.isNotEmpty ||
@@ -610,6 +737,20 @@ class LivelyGenerator extends Generator {
             final proxyType = '_Live${(f.type.element as ClassElement).name}';
             return 'super.${f.name} = $proxyType.from(${f.name}, _scheduleRebuild);';
           }),
+          ...futureFields.map((f) {
+            final name = f.name;
+            return '{ final \$gen = ++_\$${name}Gen;\n'
+                '  $name.then((value) { if (mounted && _\$${name}Gen == \$gen) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } })\n'
+                '  .catchError((Object e, StackTrace s) { if (mounted && _\$${name}Gen == \$gen) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } }); }';
+          }),
+          ...streamFields.map((f) {
+            final name = f.name;
+            final t = _asyncTypeArg(f);
+            return '_\$${name}Sub = $name.listen(\n'
+                '  (value) { if (mounted) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } },\n'
+                '  onError: (Object e, StackTrace s) { if (mounted) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } },\n'
+                ');';
+          }),
         ],
         override: true,
       ));
@@ -623,7 +764,7 @@ class LivelyGenerator extends Generator {
         arguments: ['$widgetClassName old'],
         statements: [
           'super.didUpdateWidget(old);',
-          'bool _changed = false;',
+          'bool \$changed = false;',
           ...paramFields.map((f) {
             if (paramChangeNotifierFields.contains(f)) {
               final op = _callOp(f);
@@ -631,17 +772,18 @@ class LivelyGenerator extends Generator {
                   'old.${f.name}${op}removeListener(_scheduleRebuild); '
                   'super.${f.name} = widget.${f.name}; '
                   '${f.name}${op}addListener(_scheduleRebuild); '
-                  '_changed = true; }';
+                  '\$changed = true; }';
             }
-            return 'if (widget.${f.name} != old.${f.name}) { super.${f.name} = widget.${f.name}; _changed = true; }';
+            return 'if (widget.${f.name} != old.${f.name}) { super.${f.name} = widget.${f.name}; \$changed = true; }';
           }),
-          'if (_changed) _scheduleRebuild();',
+          'if (\$changed) _scheduleRebuild();',
         ],
         override: true,
       ));
     }
 
     final needsDispose = disposableFields.isNotEmpty ||
+        streamFields.isNotEmpty ||
         changeNotifierFields.isNotEmpty ||
         ownedStoreFields.isNotEmpty ||
         paramChangeNotifierFields.isNotEmpty ||
@@ -653,6 +795,7 @@ class LivelyGenerator extends Generator {
         methodName: 'dispose',
         arguments: [],
         statements: [
+          ...streamFields.map((f) => '_\$${f.name}Sub?.cancel();'),
           ...disposableFields.map((f) => '${f.name}${_callOp(f)}${_disposeMethod(f)}();'),
           ...changeNotifierFields
               .map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleRebuild);'),
@@ -701,6 +844,8 @@ class LivelyGenerator extends Generator {
     final paramFields = <FieldElement>[];
     final paramCNFields = <FieldElement>[];
     final lateInitCNFields = <FieldElement>[];
+    final futureFields = <FieldElement>[];
+    final streamFields = <FieldElement>[];
     final disposableFields = <FieldElement>[];
     final cnFields = <FieldElement>[];
     final ownedStoreFields = <FieldElement>[];
@@ -716,6 +861,10 @@ class LivelyGenerator extends Generator {
         if (_isChangeNotifier(f)) paramCNFields.add(f);
       } else if (f.isFinal) {
         if (f.isLate && _isChangeNotifier(f)) lateInitCNFields.add(f);
+      } else if (_isDartFuture(f)) {
+        futureFields.add(f);
+      } else if (_isDartStream(f)) {
+        streamFields.add(f);
       } else if (_isDisposable(f)) {
         disposableFields.add(f);
       } else if (_isChangeNotifier(f)) {
@@ -802,6 +951,8 @@ class LivelyGenerator extends Generator {
         paramFields,
         paramCNFields,
         lateInitCNFields,
+        futureFields,
+        streamFields,
         reactiveFields,
         cnFields,
         ownedStoreFields,
@@ -892,6 +1043,8 @@ class LivelyGenerator extends Generator {
     List<FieldElement> paramFields,
     List<FieldElement> paramCNFields,
     List<FieldElement> lateInitCNFields,
+    List<FieldElement> futureFields,
+    List<FieldElement> streamFields,
     List<FieldElement> reactiveFields,
     List<FieldElement> cnFields,
     List<FieldElement> ownedStoreFields,
@@ -904,6 +1057,7 @@ class LivelyGenerator extends Generator {
   ) {
     final members = <String>[];
     final dirtyMarks = computedGetters.map((a) => '_\$${a.name}Dirty = true;').toList();
+    final dirtyStr = dirtyMarks.isNotEmpty ? ' ${dirtyMarks.join(' ')}' : '';
 
     // ── @computed backing fields, dirty flags, and getter overrides ──────────
     for (final a in computedGetters) {
@@ -918,6 +1072,74 @@ class LivelyGenerator extends Generator {
           statements: [
             'if (_\$${a.name}Dirty) { _\$${a.name} = super.${a.name}; _\$${a.name}Dirty = false; }',
             'return _\$${a.name}!;',
+          ],
+          override: true,
+        ));
+    }
+
+    // ── Future<T> fields ─────────────────────────────────────────────────────
+    if (futureFields.isNotEmpty || streamFields.isNotEmpty) {
+      members.add('bool _\$asyncDisposed = false;');
+    }
+
+    for (final f in futureFields) {
+      final name = f.name;
+      final t = _asyncTypeArg(f);
+      members
+        ..add('AsyncValue<$t> _\$${name}State = const AsyncLoading();')
+        ..add('int _\$${name}Gen = 0;')
+        ..add(_gen.createMethod(
+          returnType: 'AsyncValue<$t>',
+          methodName: 'get ${name}State',
+          arguments: null,
+          statements: ['return _\$${name}State;'],
+        ))
+        ..add(_gen.createMethod(
+          returnType: 'set',
+          methodName: name,
+          arguments: ['Future<$t> v'],
+          namedArguments: false,
+          statements: [
+            'super.$name = v;',
+            '_\$${name}State = const AsyncLoading();',
+            ...dirtyMarks,
+            '_scheduleNotify();',
+            'final \$gen = ++_\$${name}Gen;',
+            'v.then((value) { if (!_\$asyncDisposed && _\$${name}Gen == \$gen) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } })'
+            '.catchError((Object e, StackTrace s) { if (!_\$asyncDisposed && _\$${name}Gen == \$gen) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } });',
+          ],
+          override: true,
+        ));
+    }
+
+    // ── Stream<T> fields ─────────────────────────────────────────────────────
+    for (final f in streamFields) {
+      final name = f.name;
+      final t = _asyncTypeArg(f);
+      members
+        ..add('AsyncValue<$t> _\$${name}State = const AsyncLoading();')
+        ..add('StreamSubscription<$t>? _\$${name}Sub;')
+        ..add(_gen.createMethod(
+          returnType: 'AsyncValue<$t>',
+          methodName: 'get ${name}State',
+          arguments: null,
+          statements: ['return _\$${name}State;'],
+        ))
+        ..add(_gen.createMethod(
+          returnType: 'set',
+          methodName: name,
+          arguments: ['Stream<$t> v'],
+          namedArguments: false,
+          statements: [
+            'super.$name = v;',
+            '_\$${name}Sub?.cancel();',
+            '_\$${name}State = const AsyncLoading();',
+            ...dirtyMarks,
+            '_scheduleNotify();',
+            '_\$${name}Sub = v.listen(\n'
+            '  (value) { if (!_\$asyncDisposed) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } },\n'
+            '  onError: (Object e, StackTrace s) { if (!_\$asyncDisposed) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } },\n'
+            ');',
           ],
           override: true,
         ));
@@ -1115,6 +1337,22 @@ class LivelyGenerator extends Generator {
         final proxyType = '_Live${(f.type.element as ClassElement).name}';
         return 'super.${f.name} = $proxyType.from(super.${f.name}, _scheduleNotify);';
       }),
+      // Wire Future fields.
+      ...futureFields.map((f) {
+        final name = f.name;
+        return '{ final \$gen = ++_\$${name}Gen;\n'
+            '  $name.then((value) { if (!_\$asyncDisposed && _\$${name}Gen == \$gen) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } })\n'
+            '  .catchError((Object e, StackTrace s) { if (!_\$asyncDisposed && _\$${name}Gen == \$gen) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } }); }';
+      }),
+      // Wire Stream fields.
+      ...streamFields.map((f) {
+        final name = f.name;
+        final t = _asyncTypeArg(f);
+        return '_\$${name}Sub = $name.listen(\n'
+            '  (value) { if (!_\$asyncDisposed) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } },\n'
+            '  onError: (Object e, StackTrace s) { if (!_\$asyncDisposed) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } },\n'
+            ');';
+      }),
     ];
 
     final hasCtorContent = ctorParams.isNotEmpty || ctorBody.isNotEmpty;
@@ -1131,6 +1369,9 @@ class LivelyGenerator extends Generator {
 
     // ── dispose ──────────────────────────────────────────────────────────
     final disposeStatements = <String>[
+      if (futureFields.isNotEmpty || streamFields.isNotEmpty)
+        '_\$asyncDisposed = true;',
+      ...streamFields.map((f) => '_\$${f.name}Sub?.cancel();'),
       ...disposableFields.map((f) => '${f.name}${_callOp(f)}${_disposeMethod(f)}();'),
       ...cnFields.map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleNotify);'),
       ...paramCNFields.map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleNotify);'),
@@ -1343,6 +1584,19 @@ class LivelyGenerator extends Generator {
 
   bool _isDartMap(FieldElement f) => f.type.element?.name == 'Map';
 
+  bool _isDartFuture(FieldElement f) => f.type.element?.name == 'Future';
+
+  bool _isDartStream(FieldElement f) => f.type.element?.name == 'Stream';
+
+  String _asyncTypeArg(FieldElement f) {
+    final type = f.type;
+    if (type is! InterfaceType || type.typeArguments.isEmpty) return 'dynamic';
+    return type.typeArguments.first.getDisplayString(withNullability: true);
+  }
+
+  String _capitalize(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
   String _listElemType(FieldElement f) {
     final full = _type(f);
     final match = RegExp(r'^List<(.+)>$').firstMatch(full);
@@ -1446,6 +1700,13 @@ class LivelyGenerator extends Generator {
     final element = f.type.element;
     if (element is! ClassElement) return false;
     if (element.name == 'ChangeNotifier') return true;
+    // @LiveStore classes always extend ChangeNotifier (via their generated base),
+    // even if the supertype chain is unresolvable in the current build step.
+    if (_liveStoreChecker.hasAnnotationOf(element)) return true;
+    final superEl = element.supertype?.element;
+    if (superEl is ClassElement && _liveStoreChecker.hasAnnotationOf(superEl)) {
+      return true;
+    }
     return element.allSupertypes
         .any((t) => t.element.name == 'ChangeNotifier');
   }

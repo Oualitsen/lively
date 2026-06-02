@@ -1,6 +1,7 @@
 export 'package:flutter/widgets.dart' show BuildContext, InheritedNotifier, Widget;
 
 export 'src/annotations.dart';
+export 'src/async_value.dart';
 export 'src/live_store_base.dart';
 export 'src/reactive.dart';
 export 'src/live_list.dart';
