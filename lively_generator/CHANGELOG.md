@@ -1,5 +1,12 @@
+## 1.1.1
+
+- Fix: `build<FieldName>()` helpers are now declared as concrete stubs on the abstract `_$ClassName` base, so calling them inside the user's `build()` method passes static analysis without errors.
+- Fix: `@LiveStore()` fields are now recognised as `ChangeNotifier` subtypes even when their generated base class (`_$StoreName`) is not yet resolved during the current build step.
+- Generator now emits `$gen` and `$changed` (no leading underscore) for internal local variables to satisfy the `no_leading_underscores_for_local_identifiers` lint rule in the generated output.
+
 ## 1.1.0
 
+- **`Future<T>` / `Stream<T>` field support** — declare a `Future<T>` or `Stream<T>` field and the generator produces an `<fieldName>State` of type `AsyncValue<T>` (starts as `AsyncLoading`), full lifecycle wiring in `initState`/`dispose`, and a `build<FieldName>({required data, loading, error})` helper method. The `loading` and `error` params default to `CircularProgressIndicator` and `SizedBox.shrink()`. Reassigning the field resets to `AsyncLoading` and re-subscribes (old stream subscription is cancelled). Works in both `@Live()` widgets and `@LiveStore` classes. The `AsyncValue<T>` sealed type (`AsyncLoading`, `AsyncData`, `AsyncError`) is shipped in the `lively` runtime.
 - **`@computed` fields** — annotate a getter with `@computed` to cache its result and only recompute when any reactive field changes. The generator emits a nullable backing field, a dirty flag (starts `true`), and an overridden getter that recomputes lazily. Every reactive setter (scalar, collection, proxy, ChangeNotifier) marks all `@computed` getters dirty before scheduling a rebuild. Works in both `@Live()` widgets and `@LiveStore` classes.
 - Generator now throws a clear `InvalidGenerationSourceError` when a `@Live()` class does not extend `_$ClassName`, or a `@LiveStore()` class does not extend `_$StoreName`. The error message includes the exact fix required, so you get an actionable build-time message instead of non-compilable generated code.
 
