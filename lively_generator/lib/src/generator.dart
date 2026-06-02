@@ -487,11 +487,12 @@ class LivelyGenerator extends Generator {
           '  required Widget Function($t value) data,\n'
           '  Widget Function()? loading,\n'
           '  Widget Function(Object error)? error,\n'
-          '}) => switch (_\$${name}State) {\n'
-          '  AsyncLoading<$t>() => loading?.call() ?? const CircularProgressIndicator(),\n'
-          '  AsyncError<$t>(error: final e) => error?.call(e) ?? const SizedBox.shrink(),\n'
-          '  AsyncData<$t>(:final value) => data(value),\n'
-          '};',
+          '}) {\n'
+          '  final state = _\$${name}State;\n'
+          '  if (state is AsyncData<$t>) { return data(state.value); }\n'
+          '  if (state is AsyncError<$t>) { return error?.call(state.error) ?? const SizedBox.shrink(); }\n'
+          '  return loading?.call() ?? const CircularProgressIndicator();\n'
+          '}',
         );
     }
 
@@ -533,11 +534,12 @@ class LivelyGenerator extends Generator {
           '  required Widget Function($t value) data,\n'
           '  Widget Function()? loading,\n'
           '  Widget Function(Object error)? error,\n'
-          '}) => switch (_\$${name}State) {\n'
-          '  AsyncLoading<$t>() => loading?.call() ?? const CircularProgressIndicator(),\n'
-          '  AsyncError<$t>(error: final e) => error?.call(e) ?? const SizedBox.shrink(),\n'
-          '  AsyncData<$t>(:final value) => data(value),\n'
-          '};',
+          '}) {\n'
+          '  final state = _\$${name}State;\n'
+          '  if (state is AsyncData<$t>) { return data(state.value); }\n'
+          '  if (state is AsyncError<$t>) { return error?.call(state.error) ?? const SizedBox.shrink(); }\n'
+          '  return loading?.call() ?? const CircularProgressIndicator();\n'
+          '}',
         );
     }
 

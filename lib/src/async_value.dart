@@ -1,15 +1,17 @@
-sealed class AsyncValue<T> {}
+abstract class AsyncValue<T> {
+  const AsyncValue();
+}
 
-final class AsyncLoading<T> extends AsyncValue<T> {
+class AsyncLoading<T> extends AsyncValue<T> {
   const AsyncLoading();
 }
 
-final class AsyncData<T> extends AsyncValue<T> {
+class AsyncData<T> extends AsyncValue<T> {
   const AsyncData(this.value);
   final T value;
 }
 
-final class AsyncError<T> extends AsyncValue<T> {
+class AsyncError<T> extends AsyncValue<T> {
   const AsyncError(this.error, [this.stackTrace = StackTrace.empty]);
   final Object error;
   final StackTrace stackTrace;

@@ -920,9 +920,9 @@ class ProfilePage extends _$ProfilePage {
             contains('required Widget Function(String value) data'),
             contains('Widget Function()? loading'),
             contains('Widget Function(Object error)? error'),
-            contains('AsyncLoading<String>()'),
+            contains('state is AsyncData<String>'),
+            contains('state is AsyncError<String>'),
             contains('CircularProgressIndicator'),
-            contains('AsyncData<String>(:final value)'),
           ],
         );
       });
@@ -963,8 +963,8 @@ class PricePage extends _$PricePage {
             contains('_\$priceSub = v.listen'),
             contains('Widget buildPrice('),
             contains('required Widget Function(double value) data'),
-            contains('AsyncLoading<double>()'),
-            contains('AsyncData<double>(:final value)'),
+            contains('state is AsyncData<double>'),
+            contains('state is AsyncError<double>'),
           ],
         );
       });
@@ -998,7 +998,7 @@ class ProfilePage extends _$ProfilePage {
           expect: [
             contains('loading?.call() ??'),
             contains('const CircularProgressIndicator()'),
-            contains('error?.call(e) ??'),
+            contains('error?.call(state.error) ??'),
             contains('const SizedBox.shrink()'),
           ],
         );
@@ -1674,10 +1674,10 @@ export 'src/live_set.dart';
 export 'src/live_map.dart';
 ''',
   'lively|lib/src/async_value.dart': '''
-sealed class AsyncValue<T> {}
-final class AsyncLoading<T> extends AsyncValue<T> { const AsyncLoading(); }
-final class AsyncData<T> extends AsyncValue<T> { const AsyncData(this.value); final T value; }
-final class AsyncError<T> extends AsyncValue<T> { const AsyncError(this.error, [this.stackTrace = StackTrace.empty]); final Object error; final StackTrace stackTrace; }
+abstract class AsyncValue<T> { const AsyncValue(); }
+class AsyncLoading<T> extends AsyncValue<T> { const AsyncLoading(); }
+class AsyncData<T> extends AsyncValue<T> { const AsyncData(this.value); final T value; }
+class AsyncError<T> extends AsyncValue<T> { const AsyncError(this.error, [this.stackTrace = StackTrace.empty]); final Object error; final StackTrace stackTrace; }
 ''',
   'lively|lib/src/annotations.dart': '''
 class Live {
