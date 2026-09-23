@@ -556,6 +556,298 @@ class MyPage extends _$MyPage {
       );
     });
 
+    // ── proxy eligibility (types that cannot be safely subclassed) ───────
+
+    test('no proxy for type with required named params', () async {
+      await _build(
+        source: r'''
+class Target { final String a; String? b; Target({required this.a, this.b}); }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for type with required positional params', () async {
+      await _build(
+        source: r'''
+class Target { String a; Target(this.a); }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for type whose unnamed ctor is a factory', () async {
+      await _build(
+        source: r'''
+class Target { String a = ""; Target._(); factory Target() => Target._(); }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for type with only named ctors', () async {
+      await _build(
+        source: r'''
+class Target { String a = ""; Target.make(); }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for final class', () async {
+      await _build(
+        source: r'''
+final class Target { String a = ""; }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for sealed class', () async {
+      await _build(
+        source: r'''
+sealed class Target { String a = ""; }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for generic class', () async {
+      await _build(
+        source: r'''
+class Target<T> { String a = ""; }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy when a final field is set by the ctor (would not be copied)', () async {
+      await _build(
+        source: r'''
+class Target { final int id; String a = ""; Target({this.id = 0}); }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy when a private mutable field cannot be copied', () async {
+      await _build(
+        source: r'''
+class Target { int _n = 0; String a = ""; }
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('no proxy for inherited mutable fields', () async {
+      await _build(
+        source: r'''
+class Base { String a = ""; }
+class Target extends Base {}
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('@untracked opts a field out of proxy wrapping', () async {
+      await _build(
+        source: r'''
+class Target { String a = ""; }
+
+@Live()
+class MyPage extends _$MyPage {
+  @untracked Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          isNot(contains('class _LiveTarget')),
+          isNot(contains('_LiveTarget.from')),
+          // still a plain reassignable reactive field
+          contains('set target('),
+          contains('_scheduleRebuild()'),
+        ],
+      );
+    });
+
+    test('optional-only ctor type still gets a proxy that needs no super args', () async {
+      await _build(
+        source: r'''
+class Target {
+  String? a;
+  int count = 0;
+  Target({this.a});
+}
+
+@Live()
+class MyPage extends _$MyPage {
+  Target? target;
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [
+          contains('class _LiveTarget extends Target'),
+          contains('_LiveTarget.from(Target src, VoidCallback notify)'),
+          contains('_a = src.a'),
+          contains('_count = src.count'),
+          contains('set a(String? v)'),
+          contains('set count(int v)'),
+        ],
+      );
+    });
+
+    test('no-arg ctor with initialized final field still gets a proxy', () async {
+      await _build(
+        source: r'''
+class Target {
+  final String kind = 'x';
+  String a = '';
+}
+
+@Live()
+class MyPage extends _$MyPage {
+  Target target = Target();
+  @override Widget build(BuildContext context) => const SizedBox();
+}
+''',
+        expect: [contains('class _LiveTarget extends Target')],
+      );
+    });
+
+    test('@untracked works in @LiveStore too', () async {
+      await _build(
+        source: r'''
+class Target { String a = ""; }
+
+@LiveStore()
+class _S extends _$S {
+  @untracked Target target = Target();
+}
+''',
+        expect: [isNot(contains('class _LiveTarget'))],
+      );
+    });
+
     // ── all mutable fields are wired — no build() AST analysis ───────────
 
     test('all mutable fields get setter overrides — every assignment schedules a rebuild',
@@ -1690,6 +1982,10 @@ class Computed {
   const Computed();
 }
 const computed = Computed();
+class Untracked {
+  const Untracked();
+}
+const untracked = Untracked();
 ''',
   'lively|lib/src/reactive.dart': r'''
 import 'package:flutter/widgets.dart';
