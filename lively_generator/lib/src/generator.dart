@@ -4,7 +4,8 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
-import 'package:lively/src/annotations.dart' show Live, LiveStore, Computed;
+import 'package:lively/src/annotations.dart'
+    show Live, LiveStore, Computed, Untracked;
 import 'package:lively_generator/src/dart_code_gen_utils.dart';
 import 'package:source_gen/source_gen.dart';
 
@@ -14,6 +15,7 @@ class LivelyGenerator extends Generator {
   static final _liveChecker = TypeChecker.fromRuntime(Live);
   static final _liveStoreChecker = TypeChecker.fromRuntime(LiveStore);
   static final _computedChecker = TypeChecker.fromRuntime(Computed);
+  static final _untrackedChecker = TypeChecker.fromRuntime(Untracked);
 
   // Tracks which _Live<ClassName> proxy classes have been emitted per source
   // file so that two widgets/stores in the same file sharing a type don't
@@ -1531,16 +1533,9 @@ class LivelyGenerator extends Generator {
     final element = f.type.element;
     if (element is! ClassElement) return;
 
-    final String reason;
-    if (element.isFinal) {
-      reason = '${element.name} is final and cannot be subclassed';
-    } else if (element.isSealed) {
-      reason = '${element.name} is sealed and cannot be subclassed';
-    } else if (!_hasDefaultConstructor(element)) {
-      reason = '${element.name} has no no-arg or all-optional constructor';
-    } else {
-      return;
-    }
+    if (element.isAbstract) return;
+    final reason = _proxyBlocker(element);
+    if (reason == null) return;
     log.warning(
       '[lively] $widgetClass.${f.name}: proxy skipped — $reason. '
       'Nested field mutations will NOT trigger rebuilds; '
@@ -1555,16 +1550,9 @@ class LivelyGenerator extends Generator {
     bool isKey = false,
   }) {
     if (elemCls.library.isDartCore) return;
-    final String reason;
-    if (elemCls.isFinal) {
-      reason = '${elemCls.name} is final and cannot be subclassed';
-    } else if (elemCls.isSealed) {
-      reason = '${elemCls.name} is sealed and cannot be subclassed';
-    } else if (!_hasDefaultConstructor(elemCls)) {
-      reason = '${elemCls.name} has no no-arg or all-optional constructor';
-    } else {
-      return;
-    }
+    if (elemCls.isAbstract) return;
+    final reason = _proxyBlocker(elemCls);
+    if (reason == null) return;
     final role = isKey ? 'key' : 'element';
     log.warning(
       '[lively] $widgetClass.${f.name}: $role proxy skipped — $reason. '
@@ -1735,6 +1723,7 @@ class LivelyGenerator extends Generator {
   }
 
   bool _isProxyable(FieldElement f) {
+    if (_untrackedChecker.hasAnnotationOf(f)) return false;
     if (_isPrimitive(f)) return false;
     if (_isDisposable(f)) return false;
     if (_isChangeNotifier(f)) return false;
@@ -1747,10 +1736,49 @@ class LivelyGenerator extends Generator {
     return _hasDefaultConstructor(element);
   }
 
-  bool _hasDefaultConstructor(ClassElement cls) {
+  /// Why [cls] cannot be safely subclassed by a generated `_Live<Name>`
+  /// proxy, or `null` when it can.
+  ///
+  /// The proxy is `class _LiveX extends X { _LiveX.from(X src, ...) }` with an
+  /// implicit `super()` call and a field-by-field copy from `src`, so it is
+  /// only correct when `X` has an accessible generative no-arg constructor
+  /// and every piece of instance state can be copied from `src`.
+  String? _proxyBlocker(ClassElement cls) {
+    if (cls.isFinal) return '${cls.name} is final and cannot be subclassed';
+    if (cls.isSealed) return '${cls.name} is sealed and cannot be subclassed';
+    if (cls.isInterface) {
+      return '${cls.name} is an interface class and cannot be extended';
+    }
+    if (cls.typeParameters.isNotEmpty) {
+      return '${cls.name} is generic (type parameters are not supported)';
+    }
     final ctor = cls.unnamedConstructor;
-    if (ctor == null) return false;
-    if (ctor.isSynthetic) return true;
-    return ctor.parameters.every((p) => !p.isRequired);
+    if (ctor == null) return '${cls.name} has no unnamed constructor';
+    if (ctor.isFactory) {
+      return '${cls.name} has a factory unnamed constructor';
+    }
+    if (!ctor.isSynthetic && ctor.parameters.any((p) => p.isRequired)) {
+      return '${cls.name} has required constructor parameters';
+    }
+    // Every instance field must be reproducible in the proxy.
+    for (final c in [cls, ...cls.allSupertypes.map((t) => t.element)]) {
+      if (c is! ClassElement || c.library.isDartCore) continue;
+      for (final f in c.fields) {
+        if (f.isSynthetic || f.isStatic) continue;
+        final where = c == cls ? '' : ' (inherited from ${c.name})';
+        if (f.isFinal) {
+          if (!f.hasInitializer) {
+            return 'final field ${cls.name}.${f.name}$where is set by the '
+                'constructor and cannot be copied';
+          }
+        } else if (f.name.startsWith('_') || c != cls) {
+          return 'mutable field ${f.name}$where is not accessible to the proxy '
+              'and cannot be copied';
+        }
+      }
+    }
+    return null;
   }
+
+  bool _hasDefaultConstructor(ClassElement cls) => _proxyBlocker(cls) == null;
 }

@@ -1,3 +1,8 @@
+## 1.2.0
+
+- Fix: `_Live<Type>` proxy classes are no longer generated for types that cannot be safely subclassed, which previously produced non-compiling output. A proxy is now emitted only when the type has an accessible generative unnamed constructor with no required parameters, is not `final`/`sealed`/`interface`/generic, and all of its instance state can be copied from the source object (no constructor-initialized `final` fields, no private or inherited mutable fields). Otherwise the field falls back to a plain reactive field (reassignment still rebuilds; nested mutations are not tracked) and a build warning explains why.
+- **`@untracked`** field annotation (added to `lively` 1.2.0) skips proxy wrapping for a field. Requires `lively: ^1.2.0`.
+
 ## 1.1.1
 
 - Fix: `build<FieldName>()` helpers are now declared as concrete stubs on the abstract `_$ClassName` base, so calling them inside the user's `build()` method passes static analysis without errors.
