@@ -1,3 +1,7 @@
+## 1.2.1
+
+- Fix: build failure `Required named parameter 'withNullability' must be provided` when resolved against older `analyzer` 6.x. The generator calls `getDisplayString()` without `withNullability:`, which is only optional from analyzer 6.7.0, so the constraint is raised from `^6.0.0` to `^6.7.0`.
+
 ## 1.2.0
 
 - Fix: `_Live<Type>` proxy classes are no longer generated for types that cannot be safely subclassed, which previously produced non-compiling output. A proxy is now emitted only when the type has an accessible generative unnamed constructor with no required parameters, is not `final`/`sealed`/`interface`/generic, and all of its instance state can be copied from the source object (no constructor-initialized `final` fields, no private or inherited mutable fields). Otherwise the field falls back to a plain reactive field (reassignment still rebuilds; nested mutations are not tracked) and a build warning explains why.
