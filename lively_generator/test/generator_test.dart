@@ -1,5 +1,6 @@
 import 'package:build/build.dart';
 import 'package:build_test/build_test.dart';
+import 'package:logging/logging.dart';
 import 'package:lively_generator/builder.dart';
 import 'package:test/test.dart';
 
@@ -1230,7 +1231,7 @@ class ProfilePage extends _$ProfilePage {
 ''',
           expect: [
             contains('initState'),
-            contains('username.then'),
+            matches(RegExp(r'username\s*\.then')),
             contains('mounted'),
           ],
         );
@@ -1878,20 +1879,23 @@ Future<void> _build({
   );
 }
 
+/// Runs the builder expecting it to fail, and hands the SEVERE log message
+/// (which carries the generator's error text) to [onError].
 Future<void> _buildRaw({
   required String source,
   required void Function(Object) onError,
 }) async {
-  try {
-    await testBuilder(
-      livelyBuilder(BuilderOptions.empty),
-      {..._stubs, 'myapp|lib/example.dart': source},
-      outputs: {},
-    );
-    fail('Expected an error but none was thrown');
-  } catch (e) {
-    onError(e);
-  }
+  final severe = <String>[];
+  await testBuilder(
+    livelyBuilder(BuilderOptions.empty),
+    {..._stubs, 'myapp|lib/example.dart': source},
+    outputs: {},
+    onLog: (r) {
+      if (r.level >= Level.SEVERE) severe.add('${r.message}\n${r.error ?? ''}');
+    },
+  );
+  if (severe.isEmpty) fail('Expected an error but none was thrown');
+  onError(severe.join('\n'));
 }
 
 String _wrap(String body, [String extraImports = '']) => """

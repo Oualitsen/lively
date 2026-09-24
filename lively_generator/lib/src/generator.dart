@@ -12,10 +12,10 @@ import 'package:source_gen/source_gen.dart';
 class LivelyGenerator extends Generator {
   final _gen = DartCodeGenUtils();
 
-  static final _liveChecker = TypeChecker.fromRuntime(Live);
-  static final _liveStoreChecker = TypeChecker.fromRuntime(LiveStore);
-  static final _computedChecker = TypeChecker.fromRuntime(Computed);
-  static final _untrackedChecker = TypeChecker.fromRuntime(Untracked);
+  static final _liveChecker = TypeChecker.typeNamed(Live, inPackage: 'lively');
+  static final _liveStoreChecker = TypeChecker.typeNamed(LiveStore, inPackage: 'lively');
+  static final _computedChecker = TypeChecker.typeNamed(Computed, inPackage: 'lively');
+  static final _untrackedChecker = TypeChecker.typeNamed(Untracked, inPackage: 'lively');
 
   // Tracks which _Live<ClassName> proxy classes have been emitted per source
   // file so that two widgets/stores in the same file sharing a type don't
@@ -109,13 +109,13 @@ class LivelyGenerator extends Generator {
     for (final el in liveAnnotated) {
       if (el.element is! ClassElement) continue;
       final classEl = el.element as ClassElement;
-      final className = classEl.name;
+      final className = classEl.displayName;
       final expectedBase = '_\$$className';
       final decl = classDecls.firstWhere(
-        (d) => d.name.lexeme == className,
+        (d) => d.namePart.typeName.lexeme == className,
         orElse: () => throw StateError('Class $className not found in AST'),
       );
-      final actualBase = decl.extendsClause?.superclass.name2.lexeme;
+      final actualBase = decl.extendsClause?.superclass.name.lexeme;
       if (actualBase != expectedBase) {
         throw InvalidGenerationSourceError(
           '@Live() class must extend $expectedBase. '
@@ -129,15 +129,15 @@ class LivelyGenerator extends Generator {
     for (final el in storeAnnotated) {
       if (el.element is! ClassElement) continue;
       final classEl = el.element as ClassElement;
-      final specName = classEl.name;
+      final specName = classEl.displayName;
       if (!specName.startsWith('_')) continue; // name check handled in _generateStore
       final publicName = specName.substring(1);
       final expectedBase = '_\$$publicName';
       final decl = classDecls.firstWhere(
-        (d) => d.name.lexeme == specName,
+        (d) => d.namePart.typeName.lexeme == specName,
         orElse: () => throw StateError('Class $specName not found in AST'),
       );
-      final actualBase = decl.extendsClause?.superclass.name2.lexeme;
+      final actualBase = decl.extendsClause?.superclass.name.lexeme;
       if (actualBase != expectedBase) {
         throw InvalidGenerationSourceError(
           '@LiveStore() class must extend $expectedBase. '
@@ -152,14 +152,14 @@ class LivelyGenerator extends Generator {
   // ── @Live() widget generation ──────────────────────────────────────────────
 
   String _generate(ClassElement classEl) {
-    final className = classEl.name;
+    final className = classEl.displayName;
     final widgetClassName = '${className}Widget';
     final implClassName = className.startsWith('_')
         ? '_\$${className.substring(1)}Impl'
         : '_${className}Impl';
 
     final fields =
-        classEl.fields.where((f) => !f.isSynthetic && !f.isStatic).toList();
+        classEl.fields.where((f) => f.isOriginDeclaration && !f.isStatic).toList();
 
     final paramFields = <FieldElement>[];
     final paramChangeNotifierFields = <FieldElement>[];
@@ -207,8 +207,8 @@ class LivelyGenerator extends Generator {
       }
     }
 
-    final computedGetters = classEl.accessors
-        .where((a) => a.isGetter && !a.isSynthetic && _computedChecker.hasAnnotationOf(a))
+    final computedGetters = classEl.getters
+        .where((a) => a.isOriginDeclaration && _computedChecker.hasAnnotationOf(a))
         .toList();
 
     final proxyCode = <String>[];
@@ -217,7 +217,7 @@ class LivelyGenerator extends Generator {
       final cls = f.type.element as ClassElement;
       final code = _generateProxies(cls, {});
       if (code.isNotEmpty) proxyCode.add(code);
-      if (_emittedByFile[_currentFileKey]!.contains(cls.name)) {
+      if (_emittedByFile[_currentFileKey]!.contains(cls.displayName)) {
         effectiveProxyFields.add(f);
       }
     }
@@ -243,8 +243,8 @@ class LivelyGenerator extends Generator {
             if (code.isNotEmpty) proxyCode.add(code);
           } else {
             log.warning(
-              '[lively] $className.${f.name}: key proxy skipped — '
-              '${keyCls.name} does not override == / hashCode. '
+              '[lively] $className.${f.displayName}: key proxy skipped — '
+              '${keyCls.displayName} does not override == / hashCode. '
               'Wrapping identity-equality keys breaks map[originalKey] lookup; '
               'only structural operations (add/remove/clear) will trigger rebuilds.',
             );
@@ -298,7 +298,7 @@ class LivelyGenerator extends Generator {
   ) {
     final paramArgs = paramFields.map((f) {
       final isNullable = _type(f).endsWith('?');
-      return isNullable ? 'this.${f.name}' : 'required this.${f.name}';
+      return isNullable ? 'this.${f.displayName}' : 'required this.${f.displayName}';
     }).toList();
 
     final ctorArgs = '{${[...paramArgs, 'super.key'].join(', ')}}';
@@ -322,7 +322,7 @@ class LivelyGenerator extends Generator {
         constructor,
         if (paramFields.isNotEmpty) ...[
           '',
-          ...paramFields.map((f) => 'final ${_type(f)} ${f.name};'),
+          ...paramFields.map((f) => 'final ${_type(f)} ${f.displayName};'),
         ],
         '',
         createState,
@@ -373,7 +373,7 @@ class LivelyGenerator extends Generator {
     // The impl overrides these with the real switch-on-AsyncValue body.
     final asyncAbstracts = <String>[];
     for (final f in [...futureFields, ...streamFields]) {
-      final name = f.name;
+      final name = f.displayName;
       final t = _asyncTypeArg(f);
       final cap = _capitalize(name);
       asyncAbstracts
@@ -429,25 +429,25 @@ class LivelyGenerator extends Generator {
     List<FieldElement> changeNotifierFields,
     List<FieldElement> ownedStoreFields,
     List<FieldElement> proxyFields,
-    List<PropertyAccessorElement> computedGetters,
+    List<GetterElement> computedGetters,
   ) {
     final members = <String>[];
-    final dirtyMarks = computedGetters.map((a) => '_\$${a.name}Dirty = true;').toList();
+    final dirtyMarks = computedGetters.map((a) => '_\$${a.displayName}Dirty = true;').toList();
     final dirtyStr = dirtyMarks.isNotEmpty ? ' ${dirtyMarks.join(' ')}' : '';
 
     // ── @computed backing fields, dirty flags, and getter overrides ──────────
     for (final a in computedGetters) {
       final returnType = a.returnType.getDisplayString();
       members
-        ..add('$returnType? _\$${a.name};')
-        ..add('bool _\$${a.name}Dirty = true;')
+        ..add('$returnType? _\$${a.displayName};')
+        ..add('bool _\$${a.displayName}Dirty = true;')
         ..add(_gen.createMethod(
           returnType: returnType,
-          methodName: 'get ${a.name}',
+          methodName: 'get ${a.displayName}',
           arguments: null,
           statements: [
-            'if (_\$${a.name}Dirty) { _\$${a.name} = super.${a.name}; _\$${a.name}Dirty = false; }',
-            'return _\$${a.name}!;',
+            'if (_\$${a.displayName}Dirty) { _\$${a.displayName} = super.${a.displayName}; _\$${a.displayName}Dirty = false; }',
+            'return _\$${a.displayName}!;',
           ],
           override: true,
         ));
@@ -455,7 +455,7 @@ class LivelyGenerator extends Generator {
 
     // ── Future<T> fields ─────────────────────────────────────────────────────
     for (final f in futureFields) {
-      final name = f.name;
+      final name = f.displayName;
       final t = _asyncTypeArg(f);
       final cap = _capitalize(name);
       members
@@ -500,7 +500,7 @@ class LivelyGenerator extends Generator {
 
     // ── Stream<T> fields ─────────────────────────────────────────────────────
     for (final f in streamFields) {
-      final name = f.name;
+      final name = f.displayName;
       final t = _asyncTypeArg(f);
       final cap = _capitalize(name);
       members
@@ -548,10 +548,10 @@ class LivelyGenerator extends Generator {
     for (final f in reactiveFields) {
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
-        statements: ['super.${f.name} = v;', ...dirtyMarks, '_scheduleRebuild();'],
+        statements: ['super.${f.displayName} = v;', ...dirtyMarks, '_scheduleRebuild();'],
         override: true,
       ));
     }
@@ -560,13 +560,13 @@ class LivelyGenerator extends Generator {
       final op = _callOp(f);
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
         statements: [
-          'final _old = super.${f.name};',
+          'final _old = super.${f.displayName};',
           '_old${op}removeListener(_scheduleRebuild);',
-          'super.${f.name} = v;',
+          'super.${f.displayName} = v;',
           'v${op}addListener(_scheduleRebuild);',
           ...dirtyMarks,
           '_scheduleRebuild();',
@@ -580,13 +580,13 @@ class LivelyGenerator extends Generator {
       final op = _callOp(f);
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
         statements: [
-          'final _old = super.${f.name};',
+          'final _old = super.${f.displayName};',
           '_old${op}removeListener(_scheduleRebuild);',
-          'super.${f.name} = v;',
+          'super.${f.displayName} = v;',
           'v${op}addListener(_scheduleRebuild);',
           ...dirtyMarks,
           '_scheduleRebuild();',
@@ -599,11 +599,11 @@ class LivelyGenerator extends Generator {
       final proxyType = '_Live${(f.type.element as ClassElement).name}';
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
         statements: [
-          'super.${f.name} = $proxyType.from(v, _scheduleRebuild);',
+          'super.${f.displayName} = $proxyType.from(v, _scheduleRebuild);',
           ...dirtyMarks,
           '_scheduleRebuild();',
         ],
@@ -612,7 +612,7 @@ class LivelyGenerator extends Generator {
     }
 
     for (final f in rxListFields) {
-      final name = f.name;
+      final name = f.displayName;
       final listType = _type(f);
       final elemType = _listElemType(f);
       final wrap = _wrapArg(f);
@@ -640,7 +640,7 @@ class LivelyGenerator extends Generator {
     }
 
     for (final f in rxSetFields) {
-      final name = f.name;
+      final name = f.displayName;
       final setType = _type(f);
       final elemType = _setElemType(f);
       final wrap = _wrapArg(f);
@@ -668,7 +668,7 @@ class LivelyGenerator extends Generator {
     }
 
     for (final f in rxMapFields) {
-      final name = f.name;
+      final name = f.displayName;
       final mapType = _type(f);
       final keyType = _mapKeyType(f);
       final valueType = _mapValueType(f);
@@ -714,41 +714,41 @@ class LivelyGenerator extends Generator {
         methodName: 'initState',
         arguments: [],
         statements: [
-          ...paramFields.map((f) => 'super.${f.name} = widget.${f.name};'),
+          ...paramFields.map((f) => 'super.${f.displayName} = widget.${f.displayName};'),
           'super.initState();',
           ...rxListFields.map((f) {
             final wrap = _wrapArg(f);
-            return '_\$${f.name} = LiveList.of(super.${f.name}, _scheduleRebuild$wrap);';
+            return '_\$${f.displayName} = LiveList.of(super.${f.displayName}, _scheduleRebuild$wrap);';
           }),
           ...rxSetFields.map((f) {
             final wrap = _wrapArg(f);
-            return '_\$${f.name} = LiveSet.of(super.${f.name}, _scheduleRebuild$wrap);';
+            return '_\$${f.displayName} = LiveSet.of(super.${f.displayName}, _scheduleRebuild$wrap);';
           }),
           ...rxMapFields.map((f) {
             final wrapKey = _wrapKeyArg(f);
             final wrapValue = _wrapValueArg(f);
-            return '_\$${f.name} = LiveMap.of(super.${f.name}, _scheduleRebuild$wrapKey$wrapValue);';
+            return '_\$${f.displayName} = LiveMap.of(super.${f.displayName}, _scheduleRebuild$wrapKey$wrapValue);';
           }),
           ...changeNotifierFields
-              .map((f) => '${f.name}${_callOp(f)}addListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleRebuild);'),
           ...ownedStoreFields
-              .map((f) => '${f.name}${_callOp(f)}addListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleRebuild);'),
           ...paramChangeNotifierFields
-              .map((f) => '${f.name}${_callOp(f)}addListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleRebuild);'),
           ...lateInitChangeNotifierFields
-              .map((f) => '${f.name}${_callOp(f)}addListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleRebuild);'),
           ...proxyFields.map((f) {
             final proxyType = '_Live${(f.type.element as ClassElement).name}';
-            return 'super.${f.name} = $proxyType.from(${f.name}, _scheduleRebuild);';
+            return 'super.${f.displayName} = $proxyType.from(${f.displayName}, _scheduleRebuild);';
           }),
           ...futureFields.map((f) {
-            final name = f.name;
+            final name = f.displayName;
             return '{ final \$gen = ++_\$${name}Gen;\n'
                 '  $name.then((value) { if (mounted && _\$${name}Gen == \$gen) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } })\n'
                 '  .catchError((Object e, StackTrace s) { if (mounted && _\$${name}Gen == \$gen) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } }); }';
           }),
           ...streamFields.map((f) {
-            final name = f.name;
+            final name = f.displayName;
             return '_\$${name}Sub = $name.listen(\n'
                 '  (value) { if (mounted) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleRebuild(); } },\n'
                 '  onError: (Object e, StackTrace s) { if (mounted) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleRebuild(); } },\n'
@@ -771,13 +771,13 @@ class LivelyGenerator extends Generator {
           ...paramFields.map((f) {
             if (paramChangeNotifierFields.contains(f)) {
               final op = _callOp(f);
-              return 'if (widget.${f.name} != old.${f.name}) { '
-                  'old.${f.name}${op}removeListener(_scheduleRebuild); '
-                  'super.${f.name} = widget.${f.name}; '
-                  '${f.name}${op}addListener(_scheduleRebuild); '
+              return 'if (widget.${f.displayName} != old.${f.displayName}) { '
+                  'old.${f.displayName}${op}removeListener(_scheduleRebuild); '
+                  'super.${f.displayName} = widget.${f.displayName}; '
+                  '${f.displayName}${op}addListener(_scheduleRebuild); '
                   '\$changed = true; }';
             }
-            return 'if (widget.${f.name} != old.${f.name}) { super.${f.name} = widget.${f.name}; \$changed = true; }';
+            return 'if (widget.${f.displayName} != old.${f.displayName}) { super.${f.displayName} = widget.${f.displayName}; \$changed = true; }';
           }),
           'if (\$changed) _scheduleRebuild();',
         ],
@@ -798,18 +798,18 @@ class LivelyGenerator extends Generator {
         methodName: 'dispose',
         arguments: [],
         statements: [
-          ...streamFields.map((f) => '_\$${f.name}Sub?.cancel();'),
-          ...disposableFields.map((f) => '${f.name}${_callOp(f)}${_disposeMethod(f)}();'),
+          ...streamFields.map((f) => '_\$${f.displayName}Sub?.cancel();'),
+          ...disposableFields.map((f) => '${f.displayName}${_callOp(f)}${_disposeMethod(f)}();'),
           ...changeNotifierFields
-              .map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleRebuild);'),
           // Owned @LiveStore: remove listener first, then dispose.
           ...ownedStoreFields
-              .map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleRebuild);'),
-          ...ownedStoreFields.map((f) => '${f.name}${_callOp(f)}dispose();'),
+              .map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleRebuild);'),
+          ...ownedStoreFields.map((f) => '${f.displayName}${_callOp(f)}dispose();'),
           ...paramChangeNotifierFields
-              .map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleRebuild);'),
           ...lateInitChangeNotifierFields
-              .map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleRebuild);'),
+              .map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleRebuild);'),
           'super.dispose();',
         ],
         override: true,
@@ -828,7 +828,7 @@ class LivelyGenerator extends Generator {
   // ── @LiveStore generation ─────────────────────────────────────────────────
 
   String _generateStore(ClassElement classEl) {
-    if (!classEl.name.startsWith('_')) {
+    if (!classEl.displayName.startsWith('_')) {
       throw InvalidGenerationSourceError(
         '@LiveStore() class names must start with _ '
         '(e.g. class _UserStore → generates class UserStore). '
@@ -837,12 +837,12 @@ class LivelyGenerator extends Generator {
       );
     }
 
-    final specName = classEl.name;              // e.g. _UserStore
+    final specName = classEl.displayName;              // e.g. _UserStore
     final publicName = specName.substring(1);   // e.g. UserStore
     final baseName = '_\$$publicName';          // e.g. _$UserStore
 
     final fields =
-        classEl.fields.where((f) => !f.isSynthetic && !f.isStatic).toList();
+        classEl.fields.where((f) => f.isOriginDeclaration && !f.isStatic).toList();
 
     final paramFields = <FieldElement>[];
     final paramCNFields = <FieldElement>[];
@@ -890,8 +890,8 @@ class LivelyGenerator extends Generator {
       }
     }
 
-    final computedGetters = classEl.accessors
-        .where((a) => a.isGetter && !a.isSynthetic && _computedChecker.hasAnnotationOf(a))
+    final computedGetters = classEl.getters
+        .where((a) => a.isOriginDeclaration && _computedChecker.hasAnnotationOf(a))
         .toList();
 
     final proxyCode = <String>[];
@@ -900,7 +900,7 @@ class LivelyGenerator extends Generator {
       final cls = f.type.element as ClassElement;
       final code = _generateProxies(cls, {});
       if (code.isNotEmpty) proxyCode.add(code);
-      if (_emittedByFile[_currentFileKey]!.contains(cls.name)) {
+      if (_emittedByFile[_currentFileKey]!.contains(cls.displayName)) {
         effectiveProxyFields.add(f);
       }
     }
@@ -926,8 +926,8 @@ class LivelyGenerator extends Generator {
             if (code.isNotEmpty) proxyCode.add(code);
           } else {
             log.warning(
-              '[lively] $specName.${f.name}: key proxy skipped — '
-              '${keyCls.name} does not override == / hashCode.',
+              '[lively] $specName.${f.displayName}: key proxy skipped — '
+              '${keyCls.displayName} does not override == / hashCode.',
             );
           }
         } else {
@@ -1056,25 +1056,25 @@ class LivelyGenerator extends Generator {
     List<FieldElement> rxMapFields,
     List<FieldElement> disposableFields,
     List<FieldElement> proxyFields,
-    List<PropertyAccessorElement> computedGetters,
+    List<GetterElement> computedGetters,
   ) {
     final members = <String>[];
-    final dirtyMarks = computedGetters.map((a) => '_\$${a.name}Dirty = true;').toList();
+    final dirtyMarks = computedGetters.map((a) => '_\$${a.displayName}Dirty = true;').toList();
     final dirtyStr = dirtyMarks.isNotEmpty ? ' ${dirtyMarks.join(' ')}' : '';
 
     // ── @computed backing fields, dirty flags, and getter overrides ──────────
     for (final a in computedGetters) {
       final returnType = a.returnType.getDisplayString();
       members
-        ..add('$returnType? _\$${a.name};')
-        ..add('bool _\$${a.name}Dirty = true;')
+        ..add('$returnType? _\$${a.displayName};')
+        ..add('bool _\$${a.displayName}Dirty = true;')
         ..add(_gen.createMethod(
           returnType: returnType,
-          methodName: 'get ${a.name}',
+          methodName: 'get ${a.displayName}',
           arguments: null,
           statements: [
-            'if (_\$${a.name}Dirty) { _\$${a.name} = super.${a.name}; _\$${a.name}Dirty = false; }',
-            'return _\$${a.name}!;',
+            'if (_\$${a.displayName}Dirty) { _\$${a.displayName} = super.${a.displayName}; _\$${a.displayName}Dirty = false; }',
+            'return _\$${a.displayName}!;',
           ],
           override: true,
         ));
@@ -1086,7 +1086,7 @@ class LivelyGenerator extends Generator {
     }
 
     for (final f in futureFields) {
-      final name = f.name;
+      final name = f.displayName;
       final t = _asyncTypeArg(f);
       members
         ..add('AsyncValue<$t> _\$${name}State = const AsyncLoading();')
@@ -1117,7 +1117,7 @@ class LivelyGenerator extends Generator {
 
     // ── Stream<T> fields ─────────────────────────────────────────────────────
     for (final f in streamFields) {
-      final name = f.name;
+      final name = f.displayName;
       final t = _asyncTypeArg(f);
       members
         ..add('AsyncValue<$t> _\$${name}State = const AsyncLoading();')
@@ -1152,10 +1152,10 @@ class LivelyGenerator extends Generator {
     for (final f in reactiveFields) {
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
-        statements: ['super.${f.name} = v;', ...dirtyMarks, '_scheduleNotify();'],
+        statements: ['super.${f.displayName} = v;', ...dirtyMarks, '_scheduleNotify();'],
         override: true,
       ));
     }
@@ -1165,13 +1165,13 @@ class LivelyGenerator extends Generator {
       final op = _callOp(f);
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
         statements: [
-          'final _old = super.${f.name};',
+          'final _old = super.${f.displayName};',
           '_old${op}removeListener(_scheduleNotify);',
-          'super.${f.name} = v;',
+          'super.${f.displayName} = v;',
           'v${op}addListener(_scheduleNotify);',
           ...dirtyMarks,
           '_scheduleNotify();',
@@ -1185,13 +1185,13 @@ class LivelyGenerator extends Generator {
       final op = _callOp(f);
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
         statements: [
-          'final _old = super.${f.name};',
+          'final _old = super.${f.displayName};',
           '_old${op}removeListener(_scheduleNotify);',
-          'super.${f.name} = v;',
+          'super.${f.displayName} = v;',
           'v${op}addListener(_scheduleNotify);',
           ...dirtyMarks,
           '_scheduleNotify();',
@@ -1205,11 +1205,11 @@ class LivelyGenerator extends Generator {
       final proxyType = '_Live${(f.type.element as ClassElement).name}';
       members.add(_gen.createMethod(
         returnType: 'set',
-        methodName: f.name,
+        methodName: f.displayName,
         arguments: ['${_type(f)} v'],
         namedArguments: false,
         statements: [
-          'super.${f.name} = $proxyType.from(v, _scheduleNotify);',
+          'super.${f.displayName} = $proxyType.from(v, _scheduleNotify);',
           ...dirtyMarks,
           '_scheduleNotify();',
         ],
@@ -1219,7 +1219,7 @@ class LivelyGenerator extends Generator {
 
     // ── reactive collection backing fields + getters + setters ───────────
     for (final f in rxListFields) {
-      final name = f.name;
+      final name = f.displayName;
       final listType = _type(f);
       final elemType = _listElemType(f);
       final wrap = _wrapArgForRef(f, '_scheduleNotify');
@@ -1247,7 +1247,7 @@ class LivelyGenerator extends Generator {
     }
 
     for (final f in rxSetFields) {
-      final name = f.name;
+      final name = f.displayName;
       final setType = _type(f);
       final elemType = _setElemType(f);
       final wrap = _wrapArgForRef(f, '_scheduleNotify');
@@ -1275,7 +1275,7 @@ class LivelyGenerator extends Generator {
     }
 
     for (final f in rxMapFields) {
-      final name = f.name;
+      final name = f.displayName;
       final mapType = _type(f);
       final keyType = _mapKeyType(f);
       final valueType = _mapValueType(f);
@@ -1307,49 +1307,49 @@ class LivelyGenerator extends Generator {
     // ── constructor ──────────────────────────────────────────────────────
     final ctorParams = paramFields.map((f) {
       final isNullable = _type(f).endsWith('?');
-      return isNullable ? '${_type(f)} ${f.name}' : 'required ${_type(f)} ${f.name}';
+      return isNullable ? '${_type(f)} ${f.displayName}' : 'required ${_type(f)} ${f.displayName}';
     }).toList();
 
     final ctorBody = <String>[
       // Set constructor params before anything else.
-      ...paramFields.map((f) => 'super.${f.name} = ${f.name};'),
+      ...paramFields.map((f) => 'super.${f.displayName} = ${f.displayName};'),
       // Wire CN params (borrowed — addListener only, no dispose).
-      ...paramCNFields.map((f) => '${f.name}${_callOp(f)}addListener(_scheduleNotify);'),
+      ...paramCNFields.map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleNotify);'),
       // Wire late-init CN fields (triggers lazy initializer).
-      ...lateInitCNFields.map((f) => '${f.name}${_callOp(f)}addListener(_scheduleNotify);'),
+      ...lateInitCNFields.map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleNotify);'),
       // Init reactive collections from field initial values.
       ...rxListFields.map((f) {
         final wrap = _wrapArgForRef(f, '_scheduleNotify');
-        return '_\$${f.name} = LiveList.of(super.${f.name}, _scheduleNotify$wrap);';
+        return '_\$${f.displayName} = LiveList.of(super.${f.displayName}, _scheduleNotify$wrap);';
       }),
       ...rxSetFields.map((f) {
         final wrap = _wrapArgForRef(f, '_scheduleNotify');
-        return '_\$${f.name} = LiveSet.of(super.${f.name}, _scheduleNotify$wrap);';
+        return '_\$${f.displayName} = LiveSet.of(super.${f.displayName}, _scheduleNotify$wrap);';
       }),
       ...rxMapFields.map((f) {
         final wrapKey = _wrapKeyArgForRef(f, '_scheduleNotify');
         final wrapValue = _wrapValueArgForRef(f, '_scheduleNotify');
-        return '_\$${f.name} = LiveMap.of(super.${f.name}, _scheduleNotify$wrapKey$wrapValue);';
+        return '_\$${f.displayName} = LiveMap.of(super.${f.displayName}, _scheduleNotify$wrapKey$wrapValue);';
       }),
       // Wire borrowed CN fields.
-      ...cnFields.map((f) => '${f.name}${_callOp(f)}addListener(_scheduleNotify);'),
+      ...cnFields.map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleNotify);'),
       // Wire owned @LiveStore fields.
-      ...ownedStoreFields.map((f) => '${f.name}${_callOp(f)}addListener(_scheduleNotify);'),
+      ...ownedStoreFields.map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleNotify);'),
       // Wrap proxy fields with their reactive proxy.
       ...proxyFields.map((f) {
         final proxyType = '_Live${(f.type.element as ClassElement).name}';
-        return 'super.${f.name} = $proxyType.from(super.${f.name}, _scheduleNotify);';
+        return 'super.${f.displayName} = $proxyType.from(super.${f.displayName}, _scheduleNotify);';
       }),
       // Wire Future fields.
       ...futureFields.map((f) {
-        final name = f.name;
+        final name = f.displayName;
         return '{ final \$gen = ++_\$${name}Gen;\n'
             '  $name.then((value) { if (!_\$asyncDisposed && _\$${name}Gen == \$gen) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } })\n'
             '  .catchError((Object e, StackTrace s) { if (!_\$asyncDisposed && _\$${name}Gen == \$gen) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } }); }';
       }),
       // Wire Stream fields.
       ...streamFields.map((f) {
-        final name = f.name;
+        final name = f.displayName;
         return '_\$${name}Sub = $name.listen(\n'
             '  (value) { if (!_\$asyncDisposed) { _\$${name}State = AsyncData(value);$dirtyStr _scheduleNotify(); } },\n'
             '  onError: (Object e, StackTrace s) { if (!_\$asyncDisposed) { _\$${name}State = AsyncError(e, s);$dirtyStr _scheduleNotify(); } },\n'
@@ -1373,14 +1373,14 @@ class LivelyGenerator extends Generator {
     final disposeStatements = <String>[
       if (futureFields.isNotEmpty || streamFields.isNotEmpty)
         '_\$asyncDisposed = true;',
-      ...streamFields.map((f) => '_\$${f.name}Sub?.cancel();'),
-      ...disposableFields.map((f) => '${f.name}${_callOp(f)}${_disposeMethod(f)}();'),
-      ...cnFields.map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleNotify);'),
-      ...paramCNFields.map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleNotify);'),
-      ...lateInitCNFields.map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleNotify);'),
+      ...streamFields.map((f) => '_\$${f.displayName}Sub?.cancel();'),
+      ...disposableFields.map((f) => '${f.displayName}${_callOp(f)}${_disposeMethod(f)}();'),
+      ...cnFields.map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleNotify);'),
+      ...paramCNFields.map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleNotify);'),
+      ...lateInitCNFields.map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleNotify);'),
       // Owned @LiveStore: remove listener, then dispose.
-      ...ownedStoreFields.map((f) => '${f.name}${_callOp(f)}removeListener(_scheduleNotify);'),
-      ...ownedStoreFields.map((f) => '${f.name}${_callOp(f)}dispose();'),
+      ...ownedStoreFields.map((f) => '${f.displayName}${_callOp(f)}removeListener(_scheduleNotify);'),
+      ...ownedStoreFields.map((f) => '${f.displayName}${_callOp(f)}dispose();'),
     ];
 
     final needsDispose = disposeStatements.isNotEmpty;
@@ -1407,17 +1407,17 @@ class LivelyGenerator extends Generator {
 
   String _generateProxies(ClassElement cls, Set<String> inProgress) {
     final emitted = _emittedByFile[_currentFileKey]!;
-    if (emitted.contains(cls.name)) return '';
-    if (inProgress.contains(cls.name)) return ''; // cycle
+    if (emitted.contains(cls.displayName)) return '';
+    if (inProgress.contains(cls.displayName)) return ''; // cycle
     if (!_hasDefaultConstructor(cls)) return '';
 
-    final inProg = {...inProgress, cls.name};
+    final inProg = {...inProgress, cls.displayName};
     final mutableFields = cls.fields
         .where((f) =>
-            !f.isSynthetic &&
+            f.isOriginDeclaration &&
             !f.isStatic &&
             !f.isFinal &&
-            !f.name.startsWith('_'))
+            !f.displayName.startsWith('_'))
         .toList();
 
     final nestedCode = <String>[];
@@ -1436,11 +1436,11 @@ class LivelyGenerator extends Generator {
         }
         final wrapCtor   = _wrapArgForRef(f, 'notify');
         final wrapSetter = _wrapArgForRef(f, '_notify');
-        backingFields.add('LiveList<$elemType> _${f.name};');
+        backingFields.add('LiveList<$elemType> _${f.displayName};');
         gettersSetters
-          ..add('@override $t get ${f.name} => _${f.name};')
-          ..add('@override set ${f.name}($t v) { _${f.name} = LiveList.of(v, _notify$wrapSetter); _notify(); }');
-        ctorParts.add('_${f.name} = LiveList.of(src.${f.name}, notify$wrapCtor)');
+          ..add('@override $t get ${f.displayName} => _${f.displayName};')
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = LiveList.of(v, _notify$wrapSetter); _notify(); }');
+        ctorParts.add('_${f.displayName} = LiveList.of(src.${f.displayName}, notify$wrapCtor)');
       } else if (_isDartSet(f)) {
         final elemType = _setElemType(f);
         final elemCls = _elemClassElement(f);
@@ -1450,11 +1450,11 @@ class LivelyGenerator extends Generator {
         }
         final wrapCtor   = _wrapArgForRef(f, 'notify');
         final wrapSetter = _wrapArgForRef(f, '_notify');
-        backingFields.add('LiveSet<$elemType> _${f.name};');
+        backingFields.add('LiveSet<$elemType> _${f.displayName};');
         gettersSetters
-          ..add('@override $t get ${f.name} => _${f.name};')
-          ..add('@override set ${f.name}($t v) { _${f.name} = LiveSet.of(v, _notify$wrapSetter); _notify(); }');
-        ctorParts.add('_${f.name} = LiveSet.of(src.${f.name}, notify$wrapCtor)');
+          ..add('@override $t get ${f.displayName} => _${f.displayName};')
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = LiveSet.of(v, _notify$wrapSetter); _notify(); }');
+        ctorParts.add('_${f.displayName} = LiveSet.of(src.${f.displayName}, notify$wrapCtor)');
       } else if (_isDartMap(f)) {
         final keyType = _mapKeyType(f);
         final valueType = _mapValueType(f);
@@ -1472,33 +1472,33 @@ class LivelyGenerator extends Generator {
         final wrapKeySetter  = _wrapKeyArgForRef(f, '_notify');
         final wrapValueCtor  = _wrapValueArgForRef(f, 'notify');
         final wrapValueSetter = _wrapValueArgForRef(f, '_notify');
-        backingFields.add('LiveMap<$keyType, $valueType> _${f.name};');
+        backingFields.add('LiveMap<$keyType, $valueType> _${f.displayName};');
         gettersSetters
-          ..add('@override $t get ${f.name} => _${f.name};')
-          ..add('@override set ${f.name}($t v) { _${f.name} = LiveMap.of(v, _notify$wrapKeySetter$wrapValueSetter); _notify(); }');
-        ctorParts.add('_${f.name} = LiveMap.of(src.${f.name}, notify$wrapKeyCtor$wrapValueCtor)');
+          ..add('@override $t get ${f.displayName} => _${f.displayName};')
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = LiveMap.of(v, _notify$wrapKeySetter$wrapValueSetter); _notify(); }');
+        ctorParts.add('_${f.displayName} = LiveMap.of(src.${f.displayName}, notify$wrapKeyCtor$wrapValueCtor)');
       } else if (_isPrimitive(f)) {
-        backingFields.add('$t _${f.name};');
+        backingFields.add('$t _${f.displayName};');
         gettersSetters
-          ..add('@override $t get ${f.name} => _${f.name};')
-          ..add('@override set ${f.name}($t v) { _${f.name} = v; _notify(); }');
-        ctorParts.add('_${f.name} = src.${f.name}');
+          ..add('@override $t get ${f.displayName} => _${f.displayName};')
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = v; _notify(); }');
+        ctorParts.add('_${f.displayName} = src.${f.displayName}');
       } else if (_isProxyable(f)) {
         final nested = f.type.element as ClassElement;
         final code = _generateProxies(nested, inProg);
         if (code.isNotEmpty) nestedCode.add(code);
-        final pt = '_Live${nested.name}';
-        backingFields.add('$pt _${f.name};');
+        final pt = '_Live${nested.displayName}';
+        backingFields.add('$pt _${f.displayName};');
         gettersSetters
-          ..add('@override $pt get ${f.name} => _${f.name};')
-          ..add('@override set ${f.name}($t v) { _${f.name} = $pt.from(v, _notify); _notify(); }');
-        ctorParts.add('_${f.name} = $pt.from(src.${f.name}, notify)');
+          ..add('@override $pt get ${f.displayName} => _${f.displayName};')
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = $pt.from(v, _notify); _notify(); }');
+        ctorParts.add('_${f.displayName} = $pt.from(src.${f.displayName}, notify)');
       }
     }
 
-    emitted.add(cls.name);
+    emitted.add(cls.displayName);
 
-    final proxyName = '_Live${cls.name}';
+    final proxyName = '_Live${cls.displayName}';
     final allCtorParts = ['_notify = notify', ...ctorParts];
     final ctorInit = allCtorParts.join(',\n      ');
 
@@ -1506,13 +1506,13 @@ class LivelyGenerator extends Generator {
     for (final c in nestedCode) {
       sb.writeln(c);
     }
-    sb.writeln('class $proxyName extends ${cls.name} {');
+    sb.writeln('class $proxyName extends ${cls.displayName} {');
     sb.writeln('  final VoidCallback _notify;');
     if (backingFields.isNotEmpty) {
       sb.writeln('  ${backingFields.join('\n  ')}');
     }
     sb.writeln();
-    sb.writeln('  $proxyName.from(${cls.name} src, VoidCallback notify)');
+    sb.writeln('  $proxyName.from(${cls.displayName} src, VoidCallback notify)');
     sb.writeln('      : $ctorInit;');
     if (gettersSetters.isNotEmpty) {
       sb.writeln();
@@ -1537,9 +1537,9 @@ class LivelyGenerator extends Generator {
     final reason = _proxyBlocker(element);
     if (reason == null) return;
     log.warning(
-      '[lively] $widgetClass.${f.name}: proxy skipped — $reason. '
+      '[lively] $widgetClass.${f.displayName}: proxy skipped — $reason. '
       'Nested field mutations will NOT trigger rebuilds; '
-      'only reassigning ${f.name} itself will.',
+      'only reassigning ${f.displayName} itself will.',
     );
   }
 
@@ -1555,7 +1555,7 @@ class LivelyGenerator extends Generator {
     if (reason == null) return;
     final role = isKey ? 'key' : 'element';
     log.warning(
-      '[lively] $widgetClass.${f.name}: $role proxy skipped — $reason. '
+      '[lively] $widgetClass.${f.displayName}: $role proxy skipped — $reason. '
       'Item-level field mutations will NOT trigger rebuilds; '
       'only structural operations (add/remove/clear) will.',
     );
@@ -1566,15 +1566,15 @@ class LivelyGenerator extends Generator {
   String _type(FieldElement f) =>
       f.type.getDisplayString();
 
-  bool _isDartList(FieldElement f) => f.type.element?.name == 'List';
+  bool _isDartList(FieldElement f) => f.type.element?.displayName == 'List';
 
-  bool _isDartSet(FieldElement f) => f.type.element?.name == 'Set';
+  bool _isDartSet(FieldElement f) => f.type.element?.displayName == 'Set';
 
-  bool _isDartMap(FieldElement f) => f.type.element?.name == 'Map';
+  bool _isDartMap(FieldElement f) => f.type.element?.displayName == 'Map';
 
-  bool _isDartFuture(FieldElement f) => f.type.element?.name == 'Future';
+  bool _isDartFuture(FieldElement f) => f.type.element?.displayName == 'Future';
 
-  bool _isDartStream(FieldElement f) => f.type.element?.name == 'Stream';
+  bool _isDartStream(FieldElement f) => f.type.element?.displayName == 'Stream';
 
   String _asyncTypeArg(FieldElement f) {
     final type = f.type;
@@ -1635,7 +1635,7 @@ class LivelyGenerator extends Generator {
   bool _hasValueEquality(ClassElement cls) {
     if (cls.library.isDartCore) return true;
     return cls.methods.any((m) => m.name == '==') ||
-        cls.accessors.any((a) => a.isGetter && a.name == 'hashCode');
+        cls.getters.any((a) => a.displayName == 'hashCode');
   }
 
   bool _isElemProxyable(ClassElement cls) {
@@ -1650,8 +1650,8 @@ class LivelyGenerator extends Generator {
     final elemCls = _elemClassElement(f);
     if (elemCls == null) return '';
     final emitted = _emittedByFile[_currentFileKey] ?? {};
-    if (!emitted.contains(elemCls.name)) return '';
-    return ', wrap: (e) => _Live${elemCls.name}.from(e, $notifyRef)';
+    if (!emitted.contains(elemCls.displayName)) return '';
+    return ', wrap: (e) => _Live${elemCls.displayName}.from(e, $notifyRef)';
   }
 
   String _wrapKeyArg(FieldElement f) => _wrapKeyArgForRef(f, '_scheduleRebuild');
@@ -1661,24 +1661,24 @@ class LivelyGenerator extends Generator {
     final keyCls = _mapKeyClassElement(f);
     if (keyCls == null) return '';
     final emitted = _emittedByFile[_currentFileKey] ?? {};
-    if (!emitted.contains(keyCls.name)) return '';
+    if (!emitted.contains(keyCls.displayName)) return '';
     if (!_hasValueEquality(keyCls)) return '';
-    return ', wrapKey: (k) => _Live${keyCls.name}.from(k, $notifyRef)';
+    return ', wrapKey: (k) => _Live${keyCls.displayName}.from(k, $notifyRef)';
   }
 
   String _wrapValueArgForRef(FieldElement f, String notifyRef) {
     final valueCls = _mapValueClassElement(f);
     if (valueCls == null) return '';
     final emitted = _emittedByFile[_currentFileKey] ?? {};
-    if (!emitted.contains(valueCls.name)) return '';
-    return ', wrapValue: (v) => _Live${valueCls.name}.from(v, $notifyRef)';
+    if (!emitted.contains(valueCls.displayName)) return '';
+    return ', wrapValue: (v) => _Live${valueCls.displayName}.from(v, $notifyRef)';
   }
 
   bool _isDisposable(FieldElement f) =>
-      _disposeMap.containsKey(f.type.element?.name);
+      _disposeMap.containsKey(f.type.element?.displayName);
 
   String _disposeMethod(FieldElement f) =>
-      _disposeMap[f.type.element?.name] ?? 'dispose';
+      _disposeMap[f.type.element?.displayName] ?? 'dispose';
 
   /// Returns `?.` for nullable field types, `.` for non-nullable.
   /// Nullable disposables/listeners must use null-safe calls in dispose().
@@ -1687,7 +1687,7 @@ class LivelyGenerator extends Generator {
   bool _isChangeNotifier(FieldElement f) {
     final element = f.type.element;
     if (element is! ClassElement) return false;
-    if (element.name == 'ChangeNotifier') return true;
+    if (element.displayName == 'ChangeNotifier') return true;
     // @LiveStore classes always extend ChangeNotifier (via their generated base),
     // even if the supertype chain is unresolvable in the current build step.
     if (_liveStoreChecker.hasAnnotationOf(element)) return true;
@@ -1744,35 +1744,35 @@ class LivelyGenerator extends Generator {
   /// only correct when `X` has an accessible generative no-arg constructor
   /// and every piece of instance state can be copied from `src`.
   String? _proxyBlocker(ClassElement cls) {
-    if (cls.isFinal) return '${cls.name} is final and cannot be subclassed';
-    if (cls.isSealed) return '${cls.name} is sealed and cannot be subclassed';
+    if (cls.isFinal) return '${cls.displayName} is final and cannot be subclassed';
+    if (cls.isSealed) return '${cls.displayName} is sealed and cannot be subclassed';
     if (cls.isInterface) {
-      return '${cls.name} is an interface class and cannot be extended';
+      return '${cls.displayName} is an interface class and cannot be extended';
     }
     if (cls.typeParameters.isNotEmpty) {
-      return '${cls.name} is generic (type parameters are not supported)';
+      return '${cls.displayName} is generic (type parameters are not supported)';
     }
     final ctor = cls.unnamedConstructor;
-    if (ctor == null) return '${cls.name} has no unnamed constructor';
+    if (ctor == null) return '${cls.displayName} has no unnamed constructor';
     if (ctor.isFactory) {
-      return '${cls.name} has a factory unnamed constructor';
+      return '${cls.displayName} has a factory unnamed constructor';
     }
-    if (!ctor.isSynthetic && ctor.parameters.any((p) => p.isRequired)) {
-      return '${cls.name} has required constructor parameters';
+    if (!ctor.isOriginImplicitDefault && ctor.formalParameters.any((p) => p.isRequired)) {
+      return '${cls.displayName} has required constructor parameters';
     }
     // Every instance field must be reproducible in the proxy.
     for (final c in [cls, ...cls.allSupertypes.map((t) => t.element)]) {
       if (c is! ClassElement || c.library.isDartCore) continue;
       for (final f in c.fields) {
-        if (f.isSynthetic || f.isStatic) continue;
-        final where = c == cls ? '' : ' (inherited from ${c.name})';
+        if (!f.isOriginDeclaration || f.isStatic) continue;
+        final where = c == cls ? '' : ' (inherited from ${c.displayName})';
         if (f.isFinal) {
           if (!f.hasInitializer) {
-            return 'final field ${cls.name}.${f.name}$where is set by the '
+            return 'final field ${cls.displayName}.${f.displayName}$where is set by the '
                 'constructor and cannot be copied';
           }
-        } else if (f.name.startsWith('_') || c != cls) {
-          return 'mutable field ${f.name}$where is not accessible to the proxy '
+        } else if (f.displayName.startsWith('_') || c != cls) {
+          return 'mutable field ${f.displayName}$where is not accessible to the proxy '
               'and cannot be copied';
         }
       }

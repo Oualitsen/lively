@@ -15,6 +15,11 @@ analyzer:
     # the generator owns the actual state storage in the State class.
     must_be_immutable: ignore
     unused_element_parameter: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
 
 linter:
   rules:
