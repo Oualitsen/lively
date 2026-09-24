@@ -1,3 +1,9 @@
+## 1.3.0
+
+- **Breaking (toolchain): migrated to `analyzer` 14 / `source_gen` 4 / `build` 4** so the generator resolves on current Flutter (3.47, Dart 3.13). The analyzer 6.x range depended on the SDK-only `_macros` package, which newer Dart SDKs no longer ship, so `lively_generator` 1.2.1 could not be resolved there.
+- Requires Dart `^3.11.0`. Projects on older Flutter/Dart must stay on `lively_generator` 1.2.1.
+- Internals ported to the new element model (`getters`, `formalParameters`, `isOriginDeclaration`, `displayName`, `TypeChecker.typeNamed`). Generated output is unchanged apart from formatting differences from `dart_style` 3.
+
 ## 1.2.1
 
 - Fix: build failure `Required named parameter 'withNullability' must be provided` when resolved against older `analyzer` 6.x. The generator calls `getDisplayString()` without `withNullability:`, which is only optional from analyzer 6.7.0, so the constraint is raised from `^6.0.0` to `^6.7.0`.
