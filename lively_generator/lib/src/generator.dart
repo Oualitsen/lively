@@ -617,7 +617,7 @@ class LivelyGenerator extends Generator {
       final elemType = _listElemType(f);
       final wrap = _wrapArg(f);
       members
-        ..add('late LiveList<$elemType> _\$$name;')
+        ..add('late LiveList<$elemType>${_q(f)} _\$$name;')
         ..add(_gen.createMethod(
           returnType: listType,
           methodName: 'get $name',
@@ -631,7 +631,7 @@ class LivelyGenerator extends Generator {
           arguments: ['$listType v'],
           namedArguments: false,
           statements: [
-            '_\$$name = LiveList.of(v, _scheduleRebuild$wrap);',
+            '_\$$name = ${_of('LiveList', f, 'v', '_scheduleRebuild$wrap')};',
             ...dirtyMarks,
             '_scheduleRebuild();',
           ],
@@ -645,7 +645,7 @@ class LivelyGenerator extends Generator {
       final elemType = _setElemType(f);
       final wrap = _wrapArg(f);
       members
-        ..add('late LiveSet<$elemType> _\$$name;')
+        ..add('late LiveSet<$elemType>${_q(f)} _\$$name;')
         ..add(_gen.createMethod(
           returnType: setType,
           methodName: 'get $name',
@@ -659,7 +659,7 @@ class LivelyGenerator extends Generator {
           arguments: ['$setType v'],
           namedArguments: false,
           statements: [
-            '_\$$name = LiveSet.of(v, _scheduleRebuild$wrap);',
+            '_\$$name = ${_of('LiveSet', f, 'v', '_scheduleRebuild$wrap')};',
             ...dirtyMarks,
             '_scheduleRebuild();',
           ],
@@ -675,7 +675,7 @@ class LivelyGenerator extends Generator {
       final wrapKey = _wrapKeyArg(f);
       final wrapValue = _wrapValueArg(f);
       members
-        ..add('late LiveMap<$keyType, $valueType> _\$$name;')
+        ..add('late LiveMap<$keyType, $valueType>${_q(f)} _\$$name;')
         ..add(_gen.createMethod(
           returnType: mapType,
           methodName: 'get $name',
@@ -689,7 +689,7 @@ class LivelyGenerator extends Generator {
           arguments: ['$mapType v'],
           namedArguments: false,
           statements: [
-            '_\$$name = LiveMap.of(v, _scheduleRebuild$wrapKey$wrapValue);',
+            '_\$$name = ${_of('LiveMap', f, 'v', '_scheduleRebuild$wrapKey$wrapValue')};',
             ...dirtyMarks,
             '_scheduleRebuild();',
           ],
@@ -718,16 +718,16 @@ class LivelyGenerator extends Generator {
           'super.initState();',
           ...rxListFields.map((f) {
             final wrap = _wrapArg(f);
-            return '_\$${f.displayName} = LiveList.of(super.${f.displayName}, _scheduleRebuild$wrap);';
+            return '_\$${f.displayName} = ${_of('LiveList', f, 'super.${f.displayName}', '_scheduleRebuild$wrap')};';
           }),
           ...rxSetFields.map((f) {
             final wrap = _wrapArg(f);
-            return '_\$${f.displayName} = LiveSet.of(super.${f.displayName}, _scheduleRebuild$wrap);';
+            return '_\$${f.displayName} = ${_of('LiveSet', f, 'super.${f.displayName}', '_scheduleRebuild$wrap')};';
           }),
           ...rxMapFields.map((f) {
             final wrapKey = _wrapKeyArg(f);
             final wrapValue = _wrapValueArg(f);
-            return '_\$${f.displayName} = LiveMap.of(super.${f.displayName}, _scheduleRebuild$wrapKey$wrapValue);';
+            return '_\$${f.displayName} = ${_of('LiveMap', f, 'super.${f.displayName}', '_scheduleRebuild$wrapKey$wrapValue')};';
           }),
           ...changeNotifierFields
               .map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleRebuild);'),
@@ -1224,7 +1224,7 @@ class LivelyGenerator extends Generator {
       final elemType = _listElemType(f);
       final wrap = _wrapArgForRef(f, '_scheduleNotify');
       members
-        ..add('late LiveList<$elemType> _\$$name;')
+        ..add('late LiveList<$elemType>${_q(f)} _\$$name;')
         ..add(_gen.createMethod(
           returnType: listType,
           methodName: 'get $name',
@@ -1238,7 +1238,7 @@ class LivelyGenerator extends Generator {
           arguments: ['$listType v'],
           namedArguments: false,
           statements: [
-            '_\$$name = LiveList.of(v, _scheduleNotify$wrap);',
+            '_\$$name = ${_of('LiveList', f, 'v', '_scheduleNotify$wrap')};',
             ...dirtyMarks,
             '_scheduleNotify();',
           ],
@@ -1252,7 +1252,7 @@ class LivelyGenerator extends Generator {
       final elemType = _setElemType(f);
       final wrap = _wrapArgForRef(f, '_scheduleNotify');
       members
-        ..add('late LiveSet<$elemType> _\$$name;')
+        ..add('late LiveSet<$elemType>${_q(f)} _\$$name;')
         ..add(_gen.createMethod(
           returnType: setType,
           methodName: 'get $name',
@@ -1266,7 +1266,7 @@ class LivelyGenerator extends Generator {
           arguments: ['$setType v'],
           namedArguments: false,
           statements: [
-            '_\$$name = LiveSet.of(v, _scheduleNotify$wrap);',
+            '_\$$name = ${_of('LiveSet', f, 'v', '_scheduleNotify$wrap')};',
             ...dirtyMarks,
             '_scheduleNotify();',
           ],
@@ -1282,7 +1282,7 @@ class LivelyGenerator extends Generator {
       final wrapKey = _wrapKeyArgForRef(f, '_scheduleNotify');
       final wrapValue = _wrapValueArgForRef(f, '_scheduleNotify');
       members
-        ..add('late LiveMap<$keyType, $valueType> _\$$name;')
+        ..add('late LiveMap<$keyType, $valueType>${_q(f)} _\$$name;')
         ..add(_gen.createMethod(
           returnType: mapType,
           methodName: 'get $name',
@@ -1296,7 +1296,7 @@ class LivelyGenerator extends Generator {
           arguments: ['$mapType v'],
           namedArguments: false,
           statements: [
-            '_\$$name = LiveMap.of(v, _scheduleNotify$wrapKey$wrapValue);',
+            '_\$$name = ${_of('LiveMap', f, 'v', '_scheduleNotify$wrapKey$wrapValue')};',
             ...dirtyMarks,
             '_scheduleNotify();',
           ],
@@ -1320,16 +1320,16 @@ class LivelyGenerator extends Generator {
       // Init reactive collections from field initial values.
       ...rxListFields.map((f) {
         final wrap = _wrapArgForRef(f, '_scheduleNotify');
-        return '_\$${f.displayName} = LiveList.of(super.${f.displayName}, _scheduleNotify$wrap);';
+        return '_\$${f.displayName} = ${_of('LiveList', f, 'super.${f.displayName}', '_scheduleNotify$wrap')};';
       }),
       ...rxSetFields.map((f) {
         final wrap = _wrapArgForRef(f, '_scheduleNotify');
-        return '_\$${f.displayName} = LiveSet.of(super.${f.displayName}, _scheduleNotify$wrap);';
+        return '_\$${f.displayName} = ${_of('LiveSet', f, 'super.${f.displayName}', '_scheduleNotify$wrap')};';
       }),
       ...rxMapFields.map((f) {
         final wrapKey = _wrapKeyArgForRef(f, '_scheduleNotify');
         final wrapValue = _wrapValueArgForRef(f, '_scheduleNotify');
-        return '_\$${f.displayName} = LiveMap.of(super.${f.displayName}, _scheduleNotify$wrapKey$wrapValue);';
+        return '_\$${f.displayName} = ${_of('LiveMap', f, 'super.${f.displayName}', '_scheduleNotify$wrapKey$wrapValue')};';
       }),
       // Wire borrowed CN fields.
       ...cnFields.map((f) => '${f.displayName}${_callOp(f)}addListener(_scheduleNotify);'),
@@ -1436,11 +1436,11 @@ class LivelyGenerator extends Generator {
         }
         final wrapCtor   = _wrapArgForRef(f, 'notify');
         final wrapSetter = _wrapArgForRef(f, '_notify');
-        backingFields.add('LiveList<$elemType> _${f.displayName};');
+        backingFields.add('LiveList<$elemType>${_q(f)} _${f.displayName};');
         gettersSetters
           ..add('@override $t get ${f.displayName} => _${f.displayName};')
-          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = LiveList.of(v, _notify$wrapSetter); _notify(); }');
-        ctorParts.add('_${f.displayName} = LiveList.of(src.${f.displayName}, notify$wrapCtor)');
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = ${_of('LiveList', f, 'v', '_notify$wrapSetter')}; _notify(); }');
+        ctorParts.add('_${f.displayName} = ${_of('LiveList', f, 'src.${f.displayName}', 'notify$wrapCtor')}');
       } else if (_isDartSet(f)) {
         final elemType = _setElemType(f);
         final elemCls = _elemClassElement(f);
@@ -1450,11 +1450,11 @@ class LivelyGenerator extends Generator {
         }
         final wrapCtor   = _wrapArgForRef(f, 'notify');
         final wrapSetter = _wrapArgForRef(f, '_notify');
-        backingFields.add('LiveSet<$elemType> _${f.displayName};');
+        backingFields.add('LiveSet<$elemType>${_q(f)} _${f.displayName};');
         gettersSetters
           ..add('@override $t get ${f.displayName} => _${f.displayName};')
-          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = LiveSet.of(v, _notify$wrapSetter); _notify(); }');
-        ctorParts.add('_${f.displayName} = LiveSet.of(src.${f.displayName}, notify$wrapCtor)');
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = ${_of('LiveSet', f, 'v', '_notify$wrapSetter')}; _notify(); }');
+        ctorParts.add('_${f.displayName} = ${_of('LiveSet', f, 'src.${f.displayName}', 'notify$wrapCtor')}');
       } else if (_isDartMap(f)) {
         final keyType = _mapKeyType(f);
         final valueType = _mapValueType(f);
@@ -1472,11 +1472,11 @@ class LivelyGenerator extends Generator {
         final wrapKeySetter  = _wrapKeyArgForRef(f, '_notify');
         final wrapValueCtor  = _wrapValueArgForRef(f, 'notify');
         final wrapValueSetter = _wrapValueArgForRef(f, '_notify');
-        backingFields.add('LiveMap<$keyType, $valueType> _${f.displayName};');
+        backingFields.add('LiveMap<$keyType, $valueType>${_q(f)} _${f.displayName};');
         gettersSetters
           ..add('@override $t get ${f.displayName} => _${f.displayName};')
-          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = LiveMap.of(v, _notify$wrapKeySetter$wrapValueSetter); _notify(); }');
-        ctorParts.add('_${f.displayName} = LiveMap.of(src.${f.displayName}, notify$wrapKeyCtor$wrapValueCtor)');
+          ..add('@override set ${f.displayName}($t v) { _${f.displayName} = ${_of('LiveMap', f, 'v', '_notify$wrapKeySetter$wrapValueSetter')}; _notify(); }');
+        ctorParts.add('_${f.displayName} = ${_of('LiveMap', f, 'src.${f.displayName}', 'notify$wrapKeyCtor$wrapValueCtor')}');
       } else if (_isPrimitive(f)) {
         backingFields.add('$t _${f.displayName};');
         gettersSetters
@@ -1585,15 +1585,28 @@ class LivelyGenerator extends Generator {
   String _capitalize(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
+  bool _isNullable(FieldElement f) =>
+      _type(f).endsWith('?');
+
+  /// `?` for nullable collection fields, else empty.
+  String _q(FieldElement f) => _isNullable(f) ? '?' : '';
+
+  /// `Live<Coll>.of(src, rest)`, staying null when a nullable field is null.
+  String _of(String cls, FieldElement f, String src, String rest) {
+    if (!_isNullable(f)) return '$cls.of($src, $rest)';
+    final bang = src == 'v' ? src : '$src!';
+    return '$src == null ? null : $cls.of($bang, $rest)';
+  }
+
   String _listElemType(FieldElement f) {
     final full = _type(f);
-    final match = RegExp(r'^List<(.+)>$').firstMatch(full);
+    final match = RegExp(r'^List<(.+)>\??$').firstMatch(full);
     return match?.group(1) ?? 'dynamic';
   }
 
   String _setElemType(FieldElement f) {
     final full = _type(f);
-    final match = RegExp(r'^Set<(.+)>$').firstMatch(full);
+    final match = RegExp(r'^Set<(.+)>\??$').firstMatch(full);
     return match?.group(1) ?? 'dynamic';
   }
 

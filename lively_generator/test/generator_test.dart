@@ -622,6 +622,56 @@ class MyPage extends _$MyPage {
       );
     });
 
+    test('List<T> where T has required named params', () async {
+      await _build(
+        source: r'''
+class Item {
+  final String name;
+  int qty;
+  Item({required this.name, required this.qty});
+}
+
+@Live()
+class MyPage extends _$MyPage {
+  List<Item> items = [];
+  @override Widget build(BuildContext context) => Text('${items.length}');
+}
+''',
+        expect: [
+          contains('late LiveList<Item> _\$items'),
+          contains('LiveList.of(super.items, _scheduleRebuild)'),
+          // Item can't be subclassed by the proxy (required named params)
+          isNot(contains('class _LiveItem')),
+          isNot(contains('wrap:')),
+        ],
+      );
+    });
+
+    test('List<T>? where T has required named params', () async {
+      await _build(
+        source: r'''
+class Item {
+  final String name;
+  int qty;
+  Item({required this.name, required this.qty});
+}
+
+@Live()
+class MyPage extends _$MyPage {
+  List<Item>? items;
+  @override Widget build(BuildContext context) => Text('${items?.length}');
+}
+''',
+        expect: [
+          contains('late LiveList<Item>? _\$items'),
+          contains('List<Item>? get items'),
+          contains('_\$items = v == null ? null : LiveList.of(v, _scheduleRebuild)'),
+          contains('LiveList.of(super.items!, _scheduleRebuild)'),
+          isNot(contains('LiveList<dynamic>')),
+        ],
+      );
+    });
+
     test('no proxy for type with only named ctors', () async {
       await _build(
         source: r'''
