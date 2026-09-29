@@ -1,3 +1,7 @@
+## 1.3.1
+
+- Fix: nullable collection fields (`List<T>?`, `Set<T>?`, `Map<K, V>?`) generated non-compiling code — the backing field was typed `LiveList<dynamic>` and the nullable value was passed to `LiveList.of`. The backing field now keeps the element type and is nullable; the setter and `initState` leave it `null` when the value is `null`. Applies to `@Live()` widgets, `@LiveStore` classes and proxy classes.
+
 ## 1.3.0
 
 - **Breaking (toolchain): migrated to `analyzer` 14 / `source_gen` 4 / `build` 4** so the generator resolves on current Flutter (3.47, Dart 3.13). The analyzer 6.x range depended on the SDK-only `_macros` package, which newer Dart SDKs no longer ship, so `lively_generator` 1.2.1 could not be resolved there.

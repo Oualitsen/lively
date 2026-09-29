@@ -1,3 +1,7 @@
+## 1.3.1
+
+- Fix: nullable collection fields (`List<T>?`, `Set<T>?`, `Map<K, V>?`) no longer generate non-compiling code. The generator previously lost the element type (`LiveList<dynamic>`) and passed the nullable value to `LiveList.of`. A nullable field now stays `null` until assigned and is wrapped in a `LiveList`/`LiveSet`/`LiveMap` when non-null. Fix ships in `lively_generator` 1.3.1; no runtime changes.
+
 ## 1.2.0
 
 - **`@untracked` annotation** — opt a mutable object-typed field out of deep tracking. The field is treated as a plain reassignable field: assigning it still triggers a rebuild, mutating the object's own fields does not (use `notify()`).
